@@ -78,7 +78,7 @@ struct a96t3x6_data {
 	bool current_state;
 	bool expect_state;
 	bool earjack;
-	u8 earjack_noise;
+	int earjack_noise;
 #ifdef CONFIG_SEC_FACTORY
 	int irq_count;
 	int abnormal_mode;
@@ -2072,16 +2072,20 @@ static void grip_always_active(struct a96t3x6_data *data, int on)
 	else
 		cmd = CMD_OFF;
 
-	ret = a96t3x6_i2c_write(data->client, REG_GRIP_ALWAYS_ACTIVE, &cmd);
-		if (ret < 0)
-			GRIP_INFO("failed to change grip always active mode\n");
-
 	while (retry--) {
+		ret = a96t3x6_i2c_write(data->client, REG_GRIP_ALWAYS_ACTIVE, &cmd);
+		if (ret < 0) {
+			GRIP_INFO("i2c write fail(%d)\n", ret);
+			continue;
+		}
+
 		msleep(20);
 
 		ret = a96t3x6_i2c_read(data->client, REG_GRIP_ALWAYS_ACTIVE, &r_buf, 1);
-		if (ret < 0)
+		if (ret < 0) {
 			GRIP_INFO("i2c read fail(%d)\n", ret);
+			continue;
+		}
 
 		if ((cmd == CMD_ON && r_buf == GRIP_ALWAYS_ACTIVE_READY) ||
 			(cmd == CMD_OFF && r_buf == CMD_OFF))
@@ -2090,7 +2094,10 @@ static void grip_always_active(struct a96t3x6_data *data, int on)
 			GRIP_INFO("Wrong value 0x%x, retry again %d\n", r_buf, retry);
 	}
 
-	GRIP_INFO("Grip check mode: cmd 0x%x, return value 0x%x\n", cmd, r_buf);
+	if (retry < 0)
+		GRIP_INFO("failed to change grip always active mode\n");
+	else
+		GRIP_INFO("cmd 0x%x, return 0x%x\n", cmd, r_buf);
 }
 
 static ssize_t grip_fw_update(struct device *dev,
@@ -2629,7 +2636,7 @@ static int a96t3x6_parse_dt(struct a96t3x6_data *data, struct device *dev)
 	if (ret < 0)
 		data->firmup_cmd = 0;
 
-	ret = of_property_read_u8(np, "a96t3x6,earjack_noise", &data->earjack_noise);
+	ret = of_property_read_u32(np, "a96t3x6,earjack_noise", &data->earjack_noise);
 	if (ret < 0)
 		data->earjack_noise = 0;
 

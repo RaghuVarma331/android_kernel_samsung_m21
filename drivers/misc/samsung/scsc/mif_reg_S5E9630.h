@@ -56,7 +56,7 @@
 #define TZPC_PROT0SET		0x14410204
 
 /* POWER */
-
+/* Exynos 96300 UM - 46.5.1.59 */
 #define VGPIO_TX_MONITOR	0x1700
 #define VGPIO_TX_MON_BIT29	BIT(29)
 
@@ -74,21 +74,23 @@
 					* 0x10 : Power up
 					* 0x80 : Power down
 					* */
+#define WLBT_STATES_BIT7_0	BIT(7) | BIT(6) | BIT(5) | BIT(4) | BIT(3) | BIT(2) | BIT(1) | BIT(0)
 
 /* Exynos 9630 UM - 9.8.722 */
 #define WLBT_OPTION		0x330C
 #define WLBT_OPTION_DATA	BIT(3)
 
 /* Exynos 9630 UM - 9.8.723 */
-#define WLBT_CTRL_NS            0x3310 /* WLBT Control SFR non-secure */
-#define WLBT_ACTIVE_CLR         BIT(8)  /* WLBT_ACTIVE_REQ is clear internally on WAKEUP */
-#define WLBT_ACTIVE_EN          BIT(7)  /* Enable of WIFI_ACTIVE_REQ */
+#define WLBT_CTRL_NS		0x3310  /* WLBT Control SFR non-secure */
+#define WLBT_ACTIVE_CLR		BIT(8)  /* WLBT_ACTIVE_REQ is clear internally on WAKEUP */
+#define WLBT_ACTIVE_EN		BIT(7)  /* Enable of WIFI_ACTIVE_REQ */
 #define SW_TCXO_REQ		BIT(6)  /* SW TCXO Request register, if MASK_TCXO_REQ
 					 *  filed value is 1, This register value control TCXO Request*/
-#define MASK_TCXO_REQ           BIT(5) /* 1:mask TCXO_REQ coming from CP,
+#define MASK_TCXO_REQ		BIT(5)  /* 1:mask TCXO_REQ coming from CP,
 					 * 0:enable request source
 					 */
-#define TCXO_GATE		BIT(4) /* TCXO gate control 0: TCXO enabled 1: TCXO gated */
+#define TCXO_GATE		BIT(4)  /* TCXO gate control 0: TCXO enabled 1: TCXO gated */
+#define RTC_OUT_EN		BIT(0)  /* RTC output enable 0:Disable 1:Enable */
 /*#define SET_SW_MIF_REQ		BIT(13)*/ /* MIF SLEEP control by SW 1: if MASK_MIF_REQ is
 					 * set to HIGH, MIF enters into down state by
 					 * SET_SW_MIF_REQ.
@@ -163,23 +165,28 @@
 
 /*------------------------------------*/
 
-/* Exynos 9630 UM - 9.8.724 */
-#define WLBT_CTRL_S             0x3314 /* WLBT Control SFR secure */
-#define WLBT_START              BIT(3) /* CP control enable 0: Disable 1: Enable */
+/* Exynos 9630 UM - 9.7.724 */
+#define WLBT_CTRL_S		0x3314 /* WLBT Control SFR secure */
+#define WLBT_START		BIT(3) /* CP control enable 0: Disable 1: Enable */
 
-/* Exynos 9630 UM - 9.8.725 */
-#define WLBT_OUT 0x3320
+/* Exynos 9630 UM - 9.7.725 */
+#define WLBT_OUT		0x3320
+#define INISO_EN		BIT(19)
+#define TCXO_ACK		BIT(18)
+#define PWR_ACK			BIT(17)
+#define INTREQ_ACTIVE		BIT(14)
 #define SWEEPER_BYPASS		BIT(13) /* SWEEPER bypass mode control(WLBT2AP path) If
 					 * this bit is set to 1, SWEEPER is bypass mode.
 					 */
-#define SWEEPER_PND_CLR_REQ	BIT(7) /* SWEEPER_CLEAN Request. SWPPER is the IP
-					* that can clean up hung transaction in the Long hop
-					* async Bus Interface, when <SUBSYS> get hung
-					* state. 0: Normal 1: SWEEPER CLEAN Requested
-					*/
 
-/* Exynos 9630 UM - 9.8.726 */
+#define SWEEPER_PND_CLR_REQ	BIT(7)  /* SWEEPER_CLEAN Request. SWPPER is the IP
+					 * that can clean up hung transaction in the Long hop
+					 * async Bus Interface, when <SUBSYS> get hung
+					 * state. 0: Normal 1: SWEEPER CLEAN Requested
+					 */
+/* Exynos 9630 UM - 9.7.726 */
 #define WLBT_IN			0x3324
+#define SHIFTING_DONE_OTP_BLK	BIT(5) /* OTP shifting controls feedback 0:None 1:Shifting done */
 #define BUS_READY		BIT(4) /* BUS ready indication signal when reset released. 0:
 					* Normal 1: BUS ready state */
 #define PWRDOWN_IND		BIT(2) /* PWRDOWN state indication 0: Normal 1: In the
@@ -189,17 +196,33 @@
 					* async Bus Interface, when <SUBSYS> get hung
 					* state. 0: Normal 1: SWEEPER CLEAN
 					* Acknowledged */
-/* Exynos 9630 UM - 9.8.728 */
+
+/* Exynos 9630 UM - 9.7.727 */
+#define WLBT_INT_IN		0x3340
+
+/* Exynos 9630 UM - 9.7.728 */
 #define WLBT_INT_EN		0x3344
+
+/* Exynos 9630 UM - 9.7.729 */
+#define WLBT_INT_TYPE		0x3348
+
+/* Exynos 9630 UM - 9.7.730 */
+#define WLBT_INT_DIR		0x3348
+
+/* the same bit from 0x3340 ~ 0x3348 */
+#define LOCAL_PWR_CFG_R		BIT(0)
+#define LOCAL_PWR_CFG_F		BIT(1)
+#define PWR_REQ_R		BIT(2)
 #define PWR_REQ_F		BIT(3)
+#define TCXO_REQ_R		BIT(4)
 #define TCXO_REQ_F		BIT(5)
 
-/* Exynos 9630 UM - 9.8.10 */
-#define WLBT_STAT               0x0058
+/* Exynos 9630 UM - 9.7.1.10 */
+#define WLBT_STAT		0x0058
 #define WLBT_PWRDN_DONE		BIT(0) /* Check WLBT power-down status.*/
 #define WLBT_ACCESS_MIF		BIT(4) /* Check whether WLBT accesses MIF domain */
 
-/* Exynos 9630 UM - 9.8.11 */
+/* Exynos 9630 UM - 9.7.1.11 */
 #define WLBT_DEBUG		0x005C /* MIF sleep, wakeup debugging control */
 /* need to find where have they moved */
 //#define EN_MIF_REQ		BIT(0) /* Control MIF_REQ through GPIO_ALIVE. */

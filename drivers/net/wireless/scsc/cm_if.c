@@ -207,12 +207,19 @@ int slsi_check_rf_test_mode(void)
 #else
 	char *filepath = "/data/misc/conn/.psm.info";
 #endif
+	char *file_path = "/data/vendor/wifi/rftest.info";
 	char power_val = 0;
 
+	/* reading power value from /data/vendor/conn/.psm.info */
 	fp = filp_open(filepath, O_RDONLY, 0);
 	if (IS_ERR(fp) || (!fp)) {
 		pr_err("%s is not exist.\n", filepath);
-		return -ENOENT; /* -2 */
+		/* reading power value from /data/vendor/wifi/rftest.info */
+		fp = filp_open(file_path, O_RDONLY, 0);
+		if(IS_ERR(fp) || (!fp)) {
+			pr_err("%s is not exist.\n", file_path);
+			return -ENOENT; /* -2 */
+		}
 	}
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
@@ -354,7 +361,9 @@ static void slsi_wlan_service_remove(struct scsc_mx_module_client *module_client
 {
 	struct slsi_dev *sdev;
 	int             state;
+#ifdef CONFIG_SCSC_WLAN_SILENT_RECOVERY
 	int level = 0;
+#endif
 
 	SLSI_UNUSED_PARAMETER(mx);
 	SLSI_UNUSED_PARAMETER(module_client);
@@ -382,8 +391,8 @@ static void slsi_wlan_service_remove(struct scsc_mx_module_client *module_client
 		}
 #ifdef CONFIG_SCSC_WLAN_SILENT_RECOVERY
 		level = atomic_read(&sdev->cm_if.reset_level);
-#endif
 		if (level == SLSI_WIFI_CM_IF_SYSTEM_ERROR_PANIC) {
+#endif
 			mutex_lock(&slsi_start_mutex);
 		/**
 		 * If there was a request to stop during the recovery, then do
@@ -411,7 +420,9 @@ static void slsi_wlan_service_remove(struct scsc_mx_module_client *module_client
 						msecs_to_jiffies(sdev->recovery_timeout));
 			if (r == 0)
 				SLSI_INFO(sdev, "recovery_stop_completion timeout\n");
+#ifdef CONFIG_SCSC_WLAN_SILENT_RECOVERY
 		}
+#endif
 		mutex_lock(&slsi_start_mutex);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)
 		reinit_completion(&sdev->recovery_stop_completion);
@@ -757,6 +768,10 @@ int slsi_sm_wlan_service_start(struct slsi_dev *sdev)
 	if (err) {
 		SLSI_WARN(sdev, "scsc_mx_service_start failed err: %d\n", err);
 		atomic_set(&sdev->cm_if.cm_if_state, SCSC_WIFI_CM_IF_STATE_STOPPED);
+		if (err == -EILSEQ) {
+			sdev->cm_if.recovery_state = SLSI_RECOVERY_SERVICE_STOPPED;
+			sdev->require_service_close = true;
+		}
 		slsi_hip_stop(sdev);
 		mutex_unlock(&slsi_start_mutex);
 		return err;
@@ -918,6 +933,7 @@ void slsi_sm_wlan_service_close(struct slsi_dev *sdev)
 
 	r = scsc_mx_service_close(sdev->service);
 	if (r == -EIO) {
+#ifndef CONFIG_SCSC_WLAN_SILENT_RECOVERY
 		int retry_counter;
 
 		/**
@@ -936,10 +952,15 @@ void slsi_sm_wlan_service_close(struct slsi_dev *sdev)
 				break;
 			}
 		}
-
 		if (retry_counter + 1 == SLSI_SM_WLAN_SERVICE_CLOSE_RETRY)
 			SLSI_ERR(sdev, "scsc_mx_service_close failed %d times\n",
 				 SLSI_SM_WLAN_SERVICE_CLOSE_RETRY);
+#else
+		/**
+		 * Error handling in progress
+		 */
+		SLSI_INFO(sdev, "scsc_mx_service_close failed with error:%d\n", r);
+#endif
 	} else if (r == -EPERM) {
 		SLSI_ERR(sdev, "scsc_mx_service_close - recovery is disabled (%d)\n", r);
 	}

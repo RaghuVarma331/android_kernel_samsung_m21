@@ -1097,17 +1097,25 @@ out:
 EXPORT_SYMBOL_GPL(cpus_down);
 
 /* Requires cpu_add_remove_lock to be held */
+extern int rcu_expedited;
 static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
 			   enum cpuhp_state target)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
 	int prev_state, ret = 0;
-
+#ifndef CONFIG_TINY_RCU
+	int rcu_expedited_back;
+#endif
 	if (num_online_cpus() == 1)
 		return -EBUSY;
 
 	if (!cpu_present(cpu))
 		return -EINVAL;
+
+#ifndef CONFIG_TINY_RCU
+	rcu_expedited_back = rcu_expedited;
+	rcu_expedited = 0;
+#endif
 
 	cpus_write_lock();
 
@@ -1155,6 +1163,11 @@ out:
 	 */
 	lockup_detector_cleanup();
 	arch_smt_update();
+
+#ifndef CONFIG_TINY_RCU
+	rcu_expedited = rcu_expedited_back;
+#endif
+
 	return ret;
 }
 
@@ -1233,6 +1246,12 @@ static int _cpu_up(unsigned int cpu, int tasks_frozen, enum cpuhp_state target)
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
 	struct task_struct *idle;
 	int ret = 0;
+#ifndef CONFIG_TINY_RCU
+	int rcu_expedited_back;
+
+	rcu_expedited_back = rcu_expedited;
+	rcu_expedited = 0;
+#endif
 
 	cpus_write_lock();
 
@@ -1284,6 +1303,10 @@ static int _cpu_up(unsigned int cpu, int tasks_frozen, enum cpuhp_state target)
 out:
 	cpus_write_unlock();
 	arch_smt_update();
+
+#ifndef CONFIG_TINY_RCU
+	rcu_expedited = rcu_expedited_back;
+#endif
 	return ret;
 }
 

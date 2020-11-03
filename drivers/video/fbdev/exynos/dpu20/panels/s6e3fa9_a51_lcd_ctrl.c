@@ -1371,17 +1371,19 @@ static ssize_t xtalk_mode_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t size)
 {
 	struct lcd_info *lcd = dev_get_drvdata(dev);
-	unsigned int value;
-	int ret;
+	unsigned int value = 0;
+	int ret = 0;
 
-	if (lcd->state != PANEL_STATE_RESUMED)
-		return -EINVAL;
+	dev_info(&lcd->ld->dev, "%s: %d\n", __func__, value);
 
 	ret = kstrtouint(buf, 0, &value);
 	if (ret < 0)
 		return ret;
 
-	dev_info(&lcd->ld->dev, "%s: %d\n", __func__, value);
+	if (lcd->state != PANEL_STATE_RESUMED) {
+		dev_info(&lcd->ld->dev, "%s: state is %d\n", __func__, lcd->state);
+		return -EINVAL;
+	}
 
 	mutex_lock(&lcd->lock);
 	if (value == 1) {
@@ -1419,7 +1421,7 @@ static ssize_t enable_fd_store(struct device *dev,
 	dev_info(&lcd->ld->dev, "%s: %d\n", __func__, value);
 
 	mutex_lock(&lcd->lock);
-	decon_abd_pin_enable(decon, 0);
+	decon_abd_enable(&decon->abd, 0);
 	if (value) {
 		DSI_WRITE(SEQ_TEST_KEY_ON_F0, ARRAY_SIZE(SEQ_TEST_KEY_ON_F0));
 		DSI_WRITE(SEQ_GPARA_FD, ARRAY_SIZE(SEQ_GPARA_FD));
@@ -1432,7 +1434,7 @@ static ssize_t enable_fd_store(struct device *dev,
 		DSI_WRITE(SEQ_TEST_KEY_OFF_F0, ARRAY_SIZE(SEQ_TEST_KEY_OFF_F0));
 	}
 	msleep(120);
-	decon_abd_pin_enable(decon, 1);
+	decon_abd_enable(&decon->abd, 1);
 	mutex_unlock(&lcd->lock);
 
 	return size;
@@ -1509,6 +1511,7 @@ static ssize_t alpm_store(struct device *dev,
 	struct lcd_info *lcd = dev_get_drvdata(dev);
 	struct dsim_device *dsim = lcd->dsim;
 	struct decon_device *decon = get_decon_drvdata(0);
+	struct fb_info *fbinfo = decon->win[decon->dt.dft_win]->fbinfo;
 	union lpm_info lpm = {0, };
 	unsigned int value = 0;
 	int ret;
@@ -1525,16 +1528,23 @@ static ssize_t alpm_store(struct device *dev,
 		return -EINVAL;
 	}
 
+	if (!lock_fb_info(fbinfo)) {
+		dev_info(&lcd->ld->dev, "%s: fblock is failed\n", __func__);
+		return -EINVAL;
+	}
+
 	lpm.ver = get_bit(value, 16, 8);
 	lpm.mode = get_bit(value, 0, 8);
 
 	if (!lpm.ver && lpm.mode >= ALPM_MODE_MAX) {
 		dev_info(&lcd->ld->dev, "%s: undefined lpm value: %x\n", __func__, value);
+		unlock_fb_info(fbinfo);
 		return -EINVAL;
 	}
 
 	if (lpm.ver && lpm.mode >= AOD_MODE_MAX) {
 		dev_info(&lcd->ld->dev, "%s: undefined lpm value: %x\n", __func__, value);
+		unlock_fb_info(fbinfo);
 		return -EINVAL;
 	}
 
@@ -1545,7 +1555,7 @@ static ssize_t alpm_store(struct device *dev,
 	lcd->alpm = lpm;
 	mutex_unlock(&lcd->lock);
 
-	decon_abd_pin_enable(decon, 0);
+	decon_abd_enable(&decon->abd, 0);
 	switch (lpm.mode) {
 	case ALPM_OFF:
 		if (lcd->prev_brightness) {
@@ -1581,7 +1591,9 @@ static ssize_t alpm_store(struct device *dev,
 		mutex_unlock(&lcd->lock);
 		break;
 	}
-	decon_abd_pin_enable(decon, 1);
+	decon_abd_enable(&decon->abd, 1);
+
+	unlock_fb_info(fbinfo);
 
 	return size;
 }
@@ -2102,7 +2114,6 @@ static irqreturn_t panel_conn_det_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-#if defined(CONFIG_SEC_FACTORY)
 static ssize_t conn_det_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -2150,11 +2161,11 @@ static ssize_t conn_det_store(struct device *dev,
 }
 
 static DEVICE_ATTR(conn_det, 0644, conn_det_show, conn_det_store);
-#endif
 
 static void panel_conn_register(struct lcd_info *lcd)
 {
 	struct decon_device *decon = get_decon_drvdata(0);
+	struct abd_protect *abd = &decon->abd;
 	int gpio = 0, gpio_active = 0;
 
 	if (!decon) {
@@ -2179,11 +2190,6 @@ static void panel_conn_register(struct lcd_info *lcd)
 		return;
 	}
 
-#if defined(CONFIG_SEC_FACTORY)
-	decon_abd_con_register(decon);
-	device_create_file(&lcd->ld->dev, &dev_attr_conn_det);
-#endif
-
 	INIT_WORK(&lcd->conn_work, panel_conn_work);
 
 	lcd->conn_workqueue = create_singlethread_workqueue("lcd_conn_workqueue");
@@ -2192,7 +2198,13 @@ static void panel_conn_register(struct lcd_info *lcd)
 		return;
 	}
 
-	decon_abd_pin_register_handler(gpio_to_irq(gpio), panel_conn_det_handler, lcd);
+	decon_abd_pin_register_handler(abd, gpio_to_irq(gpio), panel_conn_det_handler, lcd);
+
+	if (!IS_ENABLED(CONFIG_SEC_FACTORY))
+		return;
+
+	decon_abd_con_register(abd);
+	device_create_file(&lcd->ld->dev, &dev_attr_conn_det);
 }
 
 static int match_dev_name(struct device *dev, void *data)

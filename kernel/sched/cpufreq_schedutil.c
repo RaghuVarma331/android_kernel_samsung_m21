@@ -892,19 +892,7 @@ static void sugov_stop(struct cpufreq_policy *policy)
 		cpufreq_remove_update_util_hook(cpu);
 	}
 
-	{
-		extern int rcu_expedited;
-
-		if (rcu_expedited) {
-			rcu_expedited = 0;
-			dsb(sy);
-			synchronize_sched();
-			rcu_expedited = 1;
-			dsb(sy);
-		} else {
-			synchronize_sched();
-		}
-	}
+	synchronize_sched();
 
 	if (!policy->fast_switch_enabled) {
 		irq_work_sync(&sg_policy->irq_work);

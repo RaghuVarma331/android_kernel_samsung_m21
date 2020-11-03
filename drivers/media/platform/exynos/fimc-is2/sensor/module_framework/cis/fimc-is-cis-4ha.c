@@ -957,8 +957,11 @@ int sensor_4ha_cis_adjust_frame_duration(struct v4l2_subdev *subdev,
 	dbg_sensor(1, "[%s](vsync cnt = %d) adj duration, frame duraion(%d), min_frame_us(%d)\n",
 			__func__, cis_data->sen_vsync_count, frame_duration, cis_data->min_frame_us_time);
 
+	dbg_sensor(1, "[%s] min_fps(%d), max_fps(%d)\n", __func__, cis->min_fps, cis->max_fps);
 	*target_duration = MAX(frame_duration, cis_data->min_frame_us_time);
-	*target_duration = MIN(frame_duration, max_frame_us_time);
+	if(cis->min_fps == cis->max_fps) {
+		*target_duration = MIN(frame_duration, max_frame_us_time);
+	}
 
 	dbg_sensor(1, "[%s]adj target_duration(%d)\n", __func__, *target_duration);
 

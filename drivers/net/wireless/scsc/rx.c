@@ -158,6 +158,7 @@ static int slsi_add_to_scan_list(struct slsi_dev *sdev, struct netdev_vif *ndev_
 	struct ieee80211_mgmt *mgmt = fapi_get_mgmt(skb);
 	bool found = 0, skb_stored = 0;
 	int current_rssi, current_band;
+	bool is_hidden = 0, ssid_matched = 0;
 
 	SLSI_MUTEX_LOCK(ndev_vif->scan_result_mutex);
 	head = ndev_vif->scan[scan_id].scan_results;
@@ -168,7 +169,12 @@ static int slsi_add_to_scan_list(struct slsi_dev *sdev, struct netdev_vif *ndev_
 			2000) == 2 ? SLSI_FREQ_BAND_2GHZ : SLSI_FREQ_BAND_5GHZ;
 
 	while (scan_result) {
-		if (SLSI_ETHER_EQUAL(scan_result->bssid, mgmt->bssid) && (scan_result->band == current_band)) {
+		is_hidden = scan_result->hidden && (!scan_ssid || !scan_ssid[1] || scan_ssid[2] == '\0');
+		ssid_matched = scan_ssid && scan_ssid[1] && scan_result->ssid_length &&
+			       (scan_ssid[1] == scan_result->ssid_length) &&
+			       !memcmp(&scan_ssid[2], scan_result->ssid, scan_ssid[1]);
+		if ((SLSI_ETHER_EQUAL(scan_result->bssid, mgmt->bssid) && (scan_result->band == current_band)) &&
+		    (is_hidden || ssid_matched)) {
 			/*entry exists for bssid*/
 			if (!scan_result->probe_resp && ieee80211_is_probe_resp(mgmt->frame_control)) {
 				scan_result->probe_resp = skb;
@@ -232,6 +238,12 @@ static int slsi_add_to_scan_list(struct slsi_dev *sdev, struct netdev_vif *ndev_
 
 		current_result->rssi = current_rssi;
 		current_result->band = current_band;
+		if (scan_ssid && scan_ssid[1]) {
+			memcpy(current_result->ssid, &scan_ssid[2], scan_ssid[1]);
+			current_result->ssid_length = scan_ssid[1];
+		} else {
+			current_result->ssid_length = 0;
+		}
 		if (ieee80211_is_beacon(mgmt->frame_control)) {
 			current_result->beacon = skb;
 			if (!scan_ssid || !scan_ssid[1] || scan_ssid[2] == '\0')
@@ -327,6 +339,10 @@ void slsi_rx_scan_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_b
 #endif
 
 	scan_ssid = cfg80211_find_ie(WLAN_EID_SSID, mgmt->u.probe_resp.variable, ie_len);
+	if (scan_ssid && scan_ssid[1] && ((ie_len - (scan_ssid - mgmt->u.probe_resp.variable) + 2) < scan_ssid[1])) {
+		slsi_kfree_skb(skb);
+		return;
+	}
 
 	if (sdev->p2p_certif && (ndev_vif->iftype == NL80211_IFTYPE_P2P_CLIENT) && (scan_id == (ndev_vif->ifnum << 8 | SLSI_SCAN_HW_ID))) {
 		/* When supplicant receives a peer GO probe response with selected registrar set and group capability as 0,
@@ -378,7 +394,7 @@ void slsi_rx_scan_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_b
 		SLSI_MUTEX_UNLOCK(ndev_vif->scan_mutex);
 }
 
-#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+#if defined(CONFIG_SLSI_WLAN_STA_FWD_BEACON) && (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 100000)
 void slsi_rx_beacon_reporting_event_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb)
 {
 	struct netdev_vif     *ndev_vif = netdev_priv(dev);
@@ -572,9 +588,9 @@ void slsi_scan_complete(struct slsi_dev *sdev, struct net_device *dev, u16 scan_
 	SLSI_MUTEX_LOCK(ndev_vif->scan_result_mutex);
 	if (SLSI_IS_VIF_INDEX_WLAN(ndev_vif)) {
 		slsi_scan_update_ssid_map(sdev, dev, scan_id);
-		result_count = &count;
 		max_count  = slsi_dev_get_scan_result_count();
 	}
+	result_count = &count;
 	scan = slsi_dequeue_cached_scan_result(&ndev_vif->scan[scan_id], result_count);
 	while (scan) {
 		scan_results_count++;
@@ -625,13 +641,13 @@ int slsi_set_2g_auto_channel(struct slsi_dev *sdev, struct netdev_vif  *ndev_vif
 			     struct slsi_acs_chan_info *ch_info)
 {
 	int i = 0, j = 0, avg_load, total_num_ap, total_rssi, adjacent_rssi;
-	bool all_bss_load = true, none_bss_load = true;
+	bool all_bss_load = true;
 	int  min_avg_chan_utilization = INT_MAX, min_adjacent_rssi = INT_MAX;
 	int ch_idx_min_load = 0, ch_idx_min_rssi = 0;
 	int min_avg_chan_utilization_20 = INT_MAX, min_adjacent_rssi_20 = INT_MAX;
 	int ch_idx_min_load_20 = 0, ch_idx_min_rssi_20 = 0;
 	int ret = 0;
-	int ch_list_len = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->ch_list_len;
+	int ch_list_len = MAX_24G_CHANNELS;
 
 	acs_selected_channels->ch_width = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->ch_width;
 	acs_selected_channels->hw_mode = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode;
@@ -655,7 +671,6 @@ int slsi_set_2g_auto_channel(struct slsi_dev *sdev, struct netdev_vif  *ndev_vif
 				   ch_info[i].num_ap < ch_info[ch_idx_min_load_20].num_ap) {
 				ch_idx_min_load_20 = i;
 			}
-			none_bss_load = false;
 		} else {
 			SLSI_DBG3(sdev, SLSI_MLME, "BSS load IE not found\n");
 			all_bss_load = false;
@@ -759,7 +774,7 @@ int slsi_set_5g_auto_channel(struct slsi_dev *sdev, struct netdev_vif  *ndev_vif
 	int min_avg_chan_utilization_20 = INT_MAX, min_num_ap_20 = INT_MAX;
 	int ch_idx_min_load_20 = 0, ch_idx_min_ap_20 = 0;
 	int ret = 0;
-	int ch_list_len = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->ch_list_len;
+	int ch_list_len = MAX_5G_CHANNELS;
 
 	acs_selected_channels->ch_width = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->ch_width;
 	acs_selected_channels->hw_mode = ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode;
@@ -872,6 +887,81 @@ int slsi_set_5g_auto_channel(struct slsi_dev *sdev, struct netdev_vif  *ndev_vif
 	return ret;
 }
 
+int slsi_set_band_any_auto_channel(struct slsi_dev *sdev, struct netdev_vif  *ndev_vif,
+			     struct slsi_acs_selected_channels *acs_selected_channels,
+			     struct slsi_acs_chan_info *ch_info)
+{
+	struct slsi_acs_chan_info ch_info_2g[MAX_24G_CHANNELS];
+	struct slsi_acs_chan_info ch_info_5g[MAX_5G_CHANNELS];
+	struct slsi_acs_selected_channels acs_selected_channels_5g;
+	struct slsi_acs_selected_channels acs_selected_channels_2g;
+	int best_channel_5g = -1;
+	int best_channel_5g_num_ap = 0;
+	int best_channel_2g = -1;
+	int best_channel_2g_num_ap = 0;
+	int i, ret = 0;
+	int j = 0;
+
+	memset(&acs_selected_channels_5g, 0, sizeof(acs_selected_channels_5g));
+	memset(&acs_selected_channels_2g, 0, sizeof(acs_selected_channels_2g));
+	memset(&ch_info_5g, 0, sizeof(ch_info_5g));
+	memset(&ch_info_2g, 0, sizeof(ch_info_2g));
+
+	for (i = MAX_24G_CHANNELS; i < MAX_CHAN_VALUE_ACS; i++) {
+		ch_info_5g[j] = ch_info[i];
+		j++;
+	}
+	ret = slsi_set_5g_auto_channel(sdev, ndev_vif, &acs_selected_channels_5g, ch_info_5g);
+
+	if (ret == 0) {
+		best_channel_5g = acs_selected_channels_5g.pri_channel;
+		for (i = 0; i < MAX_5G_CHANNELS; i++) {
+			if (ch_info_5g[i].chan == best_channel_5g) {
+				best_channel_5g_num_ap = ch_info_5g[i].num_ap;
+				break;
+			}
+		}
+		SLSI_DBG3(sdev, SLSI_MLME, "Best 5G channel = %d, num_ap = %d\n", best_channel_5g,
+									best_channel_5g_num_ap);
+
+		if (best_channel_5g_num_ap < MAX_AP_THRESHOLD) {
+			*acs_selected_channels = acs_selected_channels_5g;
+			return ret;
+		}
+	}
+
+	SLSI_DBG3(sdev, SLSI_MLME, "5G AP threshold exceed, trying to select from 2G band\n");
+
+	for (i = 0; i < MAX_24G_CHANNELS; i++) {
+		ch_info_2g[i] = ch_info[i];
+	}
+	ret = slsi_set_2g_auto_channel(sdev, ndev_vif, &acs_selected_channels_2g, ch_info_2g);
+
+	if (ret == 0) {
+		best_channel_2g = acs_selected_channels_2g.pri_channel;
+		for (i = 0; i < MAX_24G_CHANNELS; i++) {
+			if (ch_info_2g[i].chan == best_channel_2g) {
+				best_channel_2g_num_ap = ch_info_2g[i].num_ap;
+				break;
+			}
+		}
+		SLSI_DBG3(sdev, SLSI_MLME, "Best 2G channel = %d, num_ap = %d\n", best_channel_2g,
+								best_channel_2g_num_ap);
+		if (best_channel_5g == -1) {
+			*acs_selected_channels = acs_selected_channels_2g;
+			return ret;
+		} else {
+			/* Based on min no of APs selecting channel from that band */
+			/* If no. of APs are equal, selecting the 5G channel */
+			if (best_channel_5g_num_ap > best_channel_2g_num_ap)
+				*acs_selected_channels = acs_selected_channels_2g;
+			else
+				*acs_selected_channels = acs_selected_channels_5g;
+		}
+	}
+	return ret;
+}
+
 int slsi_acs_get_rssi_factor(struct slsi_dev *sdev, int rssi, int ch_util)
 {
 	int frac_pow_val[10] = {10, 12, 15, 19, 25, 31, 39, 50, 63, 79};
@@ -932,12 +1022,12 @@ struct slsi_acs_chan_info *slsi_acs_scan_results(struct slsi_dev *sdev, struct n
 			  ies_len);
 
 		idx = slsi_find_chan_idx(scan_channel->hw_value, ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode);
-		SLSI_DBG3(sdev, SLSI_MLME, "chan_idx:%d chan_value: %d\n", idx, ch_info[idx].chan);
-
-		if ((idx < 0) || (idx > 24)) {
+		if (idx < 0) {
 			SLSI_DBG3(sdev, SLSI_MLME, "idx is not in range idx=%d\n", idx);
 			goto next_scan;
 		}
+		SLSI_DBG3(sdev, SLSI_MLME, "chan_idx:%d chan_value: %d\n", idx, ch_info[idx].chan);
+
 		if (ch_info[idx].chan) {
 			ch_info[idx].num_ap += 1;
 			ie = cfg80211_find_ie(WLAN_EID_QBSS_LOAD, mgmt->u.beacon.variable, ies_len);
@@ -982,6 +1072,8 @@ void slsi_acs_scan_complete(struct slsi_dev *sdev, struct netdev_vif *ndev_vif, 
 	else if (ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode == SLSI_ACS_MODE_IEEE80211B ||
 		 ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode == SLSI_ACS_MODE_IEEE80211G)
 		r = slsi_set_2g_auto_channel(sdev, ndev_vif, &acs_selected_channels, ch_info);
+	else if (ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request->hw_mode == SLSI_ACS_MODE_IEEE80211ANY)
+		r = slsi_set_band_any_auto_channel(sdev, ndev_vif, &acs_selected_channels, ch_info);
 	else
 		r = -EINVAL;
 	if (!r) {
@@ -1309,6 +1401,7 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 	struct cfg80211_roam_info roam_info = {};
 #endif
 
+	rtnl_lock();
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 
 	SLSI_NET_DBG1(dev, SLSI_MLME, "mlme_roamed_ind(vif:%d) Roaming to %pM\n",
@@ -1444,6 +1537,7 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 
 		ndev_vif->sta.roam_in_progress = false;
 		ndev_vif->chan = ndev_vif->sta.sta_bss->channel;
+		SLSI_ETHER_COPY(ndev_vif->sta.bssid, peer->address);
 #if !defined SLSI_TEST_DEV && defined CONFIG_ANDROID
 		SLSI_NET_DBG1(dev, SLSI_MLME, "Taking a wakelock for DHCP to finish after roaming\n");
 		wake_lock_timeout(&sdev->wlan_wl_roam, msecs_to_jiffies(10 * 1000));
@@ -1462,13 +1556,13 @@ void slsi_rx_roamed_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk
 
 exit:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
+	rtnl_unlock();
 	slsi_kfree_skb(skb);
 }
 
 void slsi_rx_roam_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb)
 {
 	struct netdev_vif         *ndev_vif = netdev_priv(dev);
-	enum ieee80211_statuscode status = WLAN_STATUS_SUCCESS;
 
 	SLSI_UNUSED_PARAMETER(sdev);
 
@@ -1483,11 +1577,7 @@ void slsi_rx_roam_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_b
 		goto exit_with_lock;
 	}
 
-	if (WARN(ndev_vif->vif_type != FAPI_VIFTYPE_STATION, "Not a Station VIF\n"))
-		goto exit_with_lock;
-
-	if (fapi_get_u16(skb, u.mlme_roam_ind.result_code) != FAPI_RESULTCODE_HOST_REQUEST_SUCCESS)
-		status = WLAN_STATUS_UNSPECIFIED_FAILURE;
+	WARN(ndev_vif->vif_type != FAPI_VIFTYPE_STATION, "Not a Station VIF\n");
 
 exit_with_lock:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
@@ -1528,6 +1618,7 @@ static void slsi_tdls_event_connected(struct slsi_dev *sdev, struct net_device *
 	u16               peer_index = fapi_get_u16(skb, u.mlme_tdls_peer_ind.peer_index);
 	u16               tdls_event =  fapi_get_u16(skb, u.mlme_tdls_peer_ind.tdls_event);
 
+	rtnl_lock();
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 
 	ndev_vif->sta.tdls_enabled = true;
@@ -1578,6 +1669,7 @@ static void slsi_tdls_event_connected(struct slsi_dev *sdev, struct net_device *
 
 exit_with_lock:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
+	rtnl_unlock();
 	slsi_kfree_skb(skb);
 }
 
@@ -1684,25 +1776,22 @@ void slsi_rx_buffered_frames(struct slsi_dev *sdev, struct net_device *dev, stru
 void slsi_rx_synchronised_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb)
 {
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
-	const u8  *connecting_ssid = NULL;
 	struct cfg80211_external_auth_params auth_request;
 	int r;
 
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 	SLSI_NET_DBG1(dev, SLSI_MLME, "Received slsi_rx_synchronised_ind, bssid:%pM\n", fapi_get_mgmt(skb)->bssid);
-	if (ndev_vif->sta.sta_bss->ies->len)
-		connecting_ssid = cfg80211_find_ie(WLAN_EID_SSID, ndev_vif->sta.sta_bss->ies->data,
-						   ndev_vif->sta.sta_bss->ies->len);
+
 	auth_request.action = NL80211_EXTERNAL_AUTH_START;
 	memcpy(auth_request.bssid, fapi_get_mgmt(skb)->bssid, ETH_ALEN);
-	if (connecting_ssid && (connecting_ssid[1] > 0)) {
-		memcpy(auth_request.ssid.ssid, &connecting_ssid[2], connecting_ssid[1]);
-		auth_request.ssid.ssid_len = connecting_ssid[1];
-	}
+	memcpy(auth_request.ssid.ssid, ndev_vif->sta.ssid, ndev_vif->sta.ssid_len);
+	auth_request.ssid.ssid_len = ndev_vif->sta.ssid_len;
 	auth_request.key_mgmt_suite = ndev_vif->sta.crypto.akm_suites[0];
+
 	r = cfg80211_external_auth_request(dev, &auth_request, GFP_KERNEL);
 	if (r)
 		SLSI_NET_DBG1(dev, SLSI_MLME, "cfg80211_external_auth_request failed");
+
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
 	slsi_kfree_skb(skb);
 }
@@ -1782,6 +1871,7 @@ void slsi_rx_reassoc_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 		      fapi_get_vif(skb),
 		      fapi_get_u16(skb, u.mlme_reassociate_ind.result_code));
 
+	rtnl_lock();
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 
 	if (!ndev_vif->activated) {
@@ -1875,6 +1965,7 @@ void slsi_rx_reassoc_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 
 exit_with_lock:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
+	rtnl_unlock();
 	slsi_kfree_skb(skb);
 }
 
@@ -1957,20 +2048,13 @@ void slsi_rx_connect_ind(struct slsi_dev *sdev, struct net_device *dev, struct s
 		status = fw_result_code;
 #ifdef CONFIG_SCSC_WLAN_SAE_CONFIG
 	if (ndev_vif->sta.crypto.wpa_versions == 3) {
-		const u8  *connecting_ssid = NULL;
 		int r;
 		struct cfg80211_external_auth_params auth_request;
 
-		if (ndev_vif->sta.sta_bss->ies->len)
-			connecting_ssid = cfg80211_find_ie(WLAN_EID_SSID, ndev_vif->sta.sta_bss->ies->data,
-							   ndev_vif->sta.sta_bss->ies->len);
-
 		auth_request.action = NL80211_EXTERNAL_AUTH_ABORT;
-		memcpy(auth_request.bssid, ndev_vif->sta.sta_bss->bssid, ETH_ALEN);
-		if (connecting_ssid && (connecting_ssid[1] > 0)) {
-			memcpy(auth_request.ssid.ssid, &connecting_ssid[2], connecting_ssid[1]);
-			auth_request.ssid.ssid_len = connecting_ssid[1];
-		}
+		memcpy(auth_request.bssid, ndev_vif->sta.bssid, ETH_ALEN);
+		memcpy(auth_request.ssid.ssid, ndev_vif->sta.ssid, ndev_vif->sta.ssid_len);
+		auth_request.ssid.ssid_len = ndev_vif->sta.ssid_len;
 		auth_request.key_mgmt_suite = ndev_vif->sta.crypto.akm_suites[0];
 		r = cfg80211_external_auth_request(dev, &auth_request, GFP_KERNEL);
 		if (r)
@@ -2230,7 +2314,12 @@ static void slsi_rx_p2p_device_discovered_ind(struct slsi_dev *sdev, struct net_
 
 	SLSI_UNUSED_PARAMETER(sdev);
 
-	SLSI_NET_DBG2(dev, SLSI_CFG80211, "Freq = %d\n", ndev_vif->chan->center_freq);
+	if (ndev_vif->chan) {
+		SLSI_NET_DBG2(dev, SLSI_CFG80211, "Freq = %d\n", ndev_vif->chan->center_freq);
+	} else {
+		SLSI_NET_ERR(dev, "ndev_vif->chan is NULL\n");
+		return;
+	}
 
 	/* Only Probe Request is expected as of now */
 	mgmt_len = fapi_get_mgmtlen(skb);
@@ -2258,13 +2347,15 @@ void slsi_rx_procedure_started_ind(struct slsi_dev *sdev, struct net_device *dev
 	struct netdev_vif *ndev_vif = netdev_priv(dev);
 	struct slsi_peer  *peer = NULL;
 
+	rtnl_lock();
 	SLSI_MUTEX_LOCK(ndev_vif->vif_mutex);
 
 	SLSI_NET_DBG1(dev, SLSI_MLME, "mlme_procedure_started_ind(vif:%d, type:%d, aid:%d)\n",
 		      fapi_get_vif(skb),
 		      fapi_get_u16(skb, u.mlme_procedure_started_ind.procedure_type),
 		      fapi_get_u16(skb, u.mlme_procedure_started_ind.association_identifier));
-	SLSI_INFO(sdev, "Send Association Request\n");
+	if (fapi_get_u16(skb, u.mlme_procedure_started_ind.procedure_type) != FAPI_PROCEDURETYPE_DEVICE_DISCOVERED)
+		SLSI_INFO(sdev, "Send Association Request\n");
 
 	if (!ndev_vif->activated) {
 		SLSI_NET_DBG1(dev, SLSI_MLME, "VIF not activated\n");
@@ -2329,7 +2420,7 @@ void slsi_rx_procedure_started_ind(struct slsi_dev *sdev, struct net_device *dev
 		break;
 	case FAPI_PROCEDURETYPE_DEVICE_DISCOVERED:
 		/* Expected only in P2P Device and P2P GO role */
-		if (!SLSI_IS_VIF_INDEX_P2P(ndev_vif) && (ndev_vif->iftype != NL80211_IFTYPE_P2P_GO)){
+		if (!SLSI_IS_VIF_INDEX_P2P(ndev_vif) && (ndev_vif->iftype != NL80211_IFTYPE_P2P_GO)) {
 			SLSI_NET_DBG1(dev, SLSI_MLME, "PROCEDURETYPE_DEVICE_DISCOVERED recd in non P2P role\n");
 			goto exit_with_lock;
 		}
@@ -2360,6 +2451,7 @@ void slsi_rx_procedure_started_ind(struct slsi_dev *sdev, struct net_device *dev
 
 exit_with_lock:
 	SLSI_MUTEX_UNLOCK(ndev_vif->vif_mutex);
+	rtnl_unlock();
 	slsi_kfree_skb(skb);
 }
 
@@ -2398,7 +2490,7 @@ void slsi_rx_frame_transmission_ind(struct slsi_dev *sdev, struct net_device *de
 		}
 
 		/* Change state if frame tx was in Listen as peer response is not expected */
-		if (SLSI_IS_VIF_INDEX_P2P(ndev_vif) && (ndev_vif->mgmt_tx_data.exp_frame == SLSI_PA_INVALID)) {
+		if (SLSI_IS_VIF_INDEX_P2P(ndev_vif) && ndev_vif->mgmt_tx_data.exp_frame == SLSI_PA_INVALID) {
 			if (delayed_work_pending(&ndev_vif->unsync.roc_expiry_work))
 				SLSI_P2P_STATE_CHANGE(sdev, P2P_LISTENING);
 			else
@@ -2528,7 +2620,7 @@ void slsi_rx_received_frame_ind(struct slsi_dev *sdev, struct net_device *dev, s
 			SLSI_INFO(sdev, "Received Auth Frame\n");
 			goto exit;
 		}
-#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+#if defined(CONFIG_SLSI_WLAN_STA_FWD_BEACON) && (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 100000)
 		if (ndev_vif->is_wips_running && ieee80211_is_beacon(mgmt->frame_control) &&
 		    SLSI_IS_VIF_INDEX_WLAN(ndev_vif)) {
 			slsi_handle_wips_beacon(sdev, dev, skb, mgmt, mgmt_len);
@@ -2725,7 +2817,7 @@ void slsi_rx_mic_failure_ind(struct slsi_dev *sdev, struct net_device *dev, stru
 	SLSI_NET_DBG1(dev, SLSI_MLME, "mlme_mic_failure_ind(vif:%d, MAC:%pM, key_type:%d, key_id:%d)\n",
 		      fapi_get_vif(skb), mac_addr, key_type, key_id);
 
-	if (WARN_ON((key_type != FAPI_KEYTYPE_GROUP) && (key_type != FAPI_KEYTYPE_PAIRWISE)))
+	if (WARN_ON(key_type != FAPI_KEYTYPE_GROUP && key_type != FAPI_KEYTYPE_PAIRWISE))
 		goto exit;
 
 	nl_key_type = (key_type == FAPI_KEYTYPE_GROUP) ? NL80211_KEYTYPE_GROUP : NL80211_KEYTYPE_PAIRWISE;

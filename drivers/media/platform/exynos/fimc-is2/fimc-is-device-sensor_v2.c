@@ -130,7 +130,7 @@ int fimc_is_search_sensor_module_with_position(struct fimc_is_device_sensor *dev
 			goto p_err;
 		}
 
-		if ((*module)->sensor_id == sensor_id)
+		if ((*module)->sensor_id == sensor_id && (*module)->position == position)
 			break;
 	}
 
@@ -1033,6 +1033,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 {
 	int i = 0;
 	int ret = 0;
+	u32 fcount;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
 	struct fimc_is_device_csi *csi;
@@ -1047,7 +1048,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 	FIMC_BUG(!device);
 	FIMC_BUG(!arg);
 
-	device->fcount = *(u32 *)arg;
+	fcount = *(u32 *)arg;
 
 	if (device->instant_cnt) {
 		device->instant_cnt--;
@@ -1065,7 +1066,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 		if (framemgr)
 			frame = peek_frame(framemgr, FS_PROCESS);
 
-		if (frame && frame->fcount == device->fcount)
+		if (frame && frame->fcount == fcount)
 			TIME_SHOT(TMS_SHOT2);
 	}
 
@@ -1104,7 +1105,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 			}
 			frameptr = (ctrl.value + dma_subdev->vc_buffer_offset) % framemgr->num_frames;
 			frame = &framemgr->frames[frameptr];
-			frame->fcount = device->fcount;
+			frame->fcount = fcount;
 
 			mdbgd_sensor("%s, VC%d[%d] = %d\n", device, __func__,
 						i, frameptr, frame->fcount);

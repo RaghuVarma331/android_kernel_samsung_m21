@@ -64,16 +64,11 @@ extern char *sec_cable_type[];
 #define SEC_BAT_CURRENT_EVENT_SKIP_HEATING_CONTROL	0x000004
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING		0x000080
 #define SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING	0x000020
-#if defined(CONFIG_ENABLE_100MA_CHARGING_BEFORE_USB_CONFIGURED)
-#define SEC_BAT_CURRENT_EVENT_USB_100MA			0x000040
-#else
-#define SEC_BAT_CURRENT_EVENT_USB_100MA			0x000000
-#endif
+
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND			0x000010
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD			0x000008
 #define SEC_BAT_CURRENT_EVENT_SWELLING_MODE		(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND | SEC_BAT_CURRENT_EVENT_HIGH_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD)
 #define SEC_BAT_CURRENT_EVENT_LOW_TEMP_MODE		(SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_2ND | SEC_BAT_CURRENT_EVENT_LOW_TEMP_SWELLING_3RD)
-#define SEC_BAT_CURRENT_EVENT_USB_SUPER			0x000100
 #define SEC_BAT_CURRENT_EVENT_CHG_LIMIT			0x000200
 #define SEC_BAT_CURRENT_EVENT_CALL			0x000400
 #define SEC_BAT_CURRENT_EVENT_SLATE			0x000800
@@ -89,6 +84,15 @@ extern char *sec_cable_type[];
 #define SEC_BAT_CURRENT_EVENT_TEMP_CTRL_TEST		0x1000000
 #define SEC_BAT_CURRENT_EVENT_25W_OCP			0x2000000
 
+#define SEC_BAT_CURRENT_EVENT_USB_SUSPENDED		0x10000000
+#define SEC_BAT_CURRENT_EVENT_USB_SUPER         0x20000000
+#if defined(CONFIG_ENABLE_100MA_CHARGING_BEFORE_USB_CONFIGURED)
+#define SEC_BAT_CURRENT_EVENT_USB_100MA         0x40000000
+#else
+#define SEC_BAT_CURRENT_EVENT_USB_100MA         0x00000000
+#endif
+#define SEC_BAT_CURRENT_EVENT_USB_STATE        (SEC_BAT_CURRENT_EVENT_USB_SUSPENDED | SEC_BAT_CURRENT_EVENT_USB_SUPER | SEC_BAT_CURRENT_EVENT_USB_100MA)
+
 /* misc_event */
 #define BATT_MISC_EVENT_UNDEFINED_RANGE_TYPE	0x00000001
 #define BATT_MISC_EVENT_WIRELESS_BACKPACK_TYPE	0x00000002
@@ -102,6 +106,20 @@ extern char *sec_cable_type[];
 #define BATT_MISC_EVENT_WIRELESS_AUTH_FAIL      0x00000800
 #define BATT_MISC_EVENT_WIRELESS_AUTH_PASS      0x00001000
 #define BATT_MISC_EVENT_TEMP_HICCUP_TYPE	0x00002000
+
+#define BATT_MISC_EVENT_BATTERY_HEALTH			0x000F0000
+
+#define BATTERY_HEALTH_SHIFT                16
+enum misc_battery_health {
+	BATTERY_HEALTH_UNKNOWN = 0,
+	BATTERY_HEALTH_GOOD,
+	BATTERY_HEALTH_NORMAL,
+	BATTERY_HEALTH_AGED,
+	BATTERY_HEALTH_MAX = BATTERY_HEALTH_AGED,
+
+	/* For event */
+	BATTERY_HEALTH_BAD = 0xF,
+};
 
 #if defined(CONFIG_SEC_FACTORY)             // SEC_FACTORY
 #define STORE_MODE_CHARGING_MAX 80
@@ -461,7 +479,11 @@ struct sec_battery_info {
 	/* test mode */
 	int test_mode;
 	bool factory_mode;
+	bool factory_mode_boot_on;
 	bool store_mode;
+
+	/* usb suspend */
+	int prev_usb_conf;
 
 	/* MTBF test for CMCC */
 	bool is_hc_usb;
@@ -504,6 +526,7 @@ struct sec_battery_info {
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
 	int batt_cycle;
 #endif
+	int batt_asoc;
 #if defined(CONFIG_STEP_CHARGING)
 	unsigned int step_charging_type;
 	unsigned int step_charging_charge_power;
@@ -593,6 +616,8 @@ extern int sec_bat_set_charge(struct sec_battery_info *battery, int chg_mode);
 extern int sec_bat_set_charging_current(struct sec_battery_info *battery);
 extern void sec_bat_aging_check(struct sec_battery_info *battery);
 extern void sec_wireless_set_tx_enable(struct sec_battery_info *battery, bool wc_tx_enable);
+
+extern void sec_bat_check_battery_health(struct sec_battery_info *battery);
 
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 extern void sec_bat_fw_update_work(struct sec_battery_info *battery, int mode);

@@ -726,6 +726,16 @@ config MFD_MAX8907
 	  accessing the device; additional drivers must be enabled in order
 	  to use the functionality of the device.
 
+config MFD_S2MU106
+	bool "SAMSUNG Electronics S2MU106 IF PMIC Series Support"
+	depends on I2C=y
+	select MFD_CORE
+	help
+	  Support for the Samsung Electronics MFD series.
+	  This driver provides common support for accessing the device,
+	  additional drivers must be enabled in order to use the functionality
+	  of the device
+
 config MFD_MAX8925
 	bool "Maxim Semiconductor MAX8925 PMIC Support"
 	depends on I2C=y
@@ -1676,6 +1686,42 @@ config MFD_ARIZONA_SPI
 	help
 	  Support for the Cirrus Logic/Wolfson Microelectronics Arizona platform
 	  audio SoC core functionality controlled via SPI.
+
+config MFD_MADERA
+	bool
+
+config MFD_MADERA_I2C
+	bool "Cirrus Logic Madera codecs with I2C"
+	select REGMAP
+	select REGMAP_IRQ
+	select MFD_CORE
+	select REGMAP_I2C
+	select MFD_MADERA
+	select MADERA_IRQ
+	depends on I2C
+	help
+	  Support for the Cirrus Logic Madera platform audio SoC
+	  core functionality controlled via I2C.
+
+config MFD_MADERA_SPI
+	bool "Cirrus Logic Madera codecs with SPI"
+	select REGMAP
+	select REGMAP_IRQ
+	select MFD_CORE
+	select REGMAP_SPI
+	select MFD_MADERA
+	select MADERA_IRQ
+	depends on SPI_MASTER
+	help
+	  Support for the Cirrus Logic Madera platform audio SoC
+	  core functionality controlled via SPI.
+
+config MFD_CS47L15
+	bool "Cirrus Logic CS47L15"
+	select PINCTRL_CS47L15
+	depends on MFD_MADERA
+	help
+	  Support for Cirrus Logic CS47L15 Smart Codec
 
 config MFD_CS47L24
 	bool "Cirrus Logic CS47L24 and WM1831"

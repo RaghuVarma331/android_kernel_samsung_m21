@@ -801,10 +801,18 @@ void sm5713_usbpd_power_ready(struct device *dev,
 	struct sm5713_policy_data *policy = &pd_data->policy;
 	struct sm5713_phydrv_data *pdic_data = pd_data->phy_driver_data;
 	CC_NOTI_ATTACH_TYPEDEF pd_notifier;
+	bool short_cable = false;
 #if defined(CONFIG_TYPEC)
 	enum typec_pwr_opmode mode = TYPEC_PWR_MODE_USB;
 #endif
 	if (!pdic_data->pd_support) {
+		pd_data->phy_ops.get_short_state(pd_data, &short_cable);
+		if (short_cable) {
+			pd_noti.sink_status.available_pdo_num = 1;
+			pd_noti.sink_status.power_list[1].max_current =
+				pd_noti.sink_status.power_list[1].max_current > 1800 ?
+				1800 : pd_noti.sink_status.power_list[1].max_current;
+		}
 		pdic_data->pd_support = 1;
 		pr_info("%s : pd_support : %d\n", __func__, pdic_data->pd_support);
 #if defined(CONFIG_TYPEC)
@@ -1099,7 +1107,6 @@ int sm5713_usbpd_evaluate_capability(struct sm5713_usbpd_data *pd_data)
 {
 	struct sm5713_policy_data *policy = &pd_data->policy;
 	struct sm5713_usbpd_manager_data *manager = &pd_data->manager;
-	struct sm5713_phydrv_data *pdic_data = pd_data->phy_driver_data;
 	int i = 0;
 	int power_type = 0;
 	int pd_volt = 0, pd_current;
@@ -1145,18 +1152,20 @@ int sm5713_usbpd_evaluate_capability(struct sm5713_usbpd_data *pd_data)
 		}
 	}
 
-	if (pdic_sink_status->rp_currentlvl == RP_CURRENT_ABNORMAL ||
-		pdic_data->is_cc_abnormal_state ||
-		pdic_data->is_sbu_abnormal_state) {
+	if (pdic_sink_status->rp_currentlvl == RP_CURRENT_ABNORMAL) {
 		available_pdo_num = 1;
 		pdic_sink_status->power_list[1].max_current =
 			pdic_sink_status->power_list[1].max_current > 1800 ?
 			1800 : pdic_sink_status->power_list[1].max_current;
-		dev_info(pd_data->dev, "Fixed max_current to 1.8A because of vbus short(rp:%d, cc:%d, sbu:%d)\n",
-			pdic_sink_status->rp_currentlvl, pdic_data->is_cc_abnormal_state, pdic_data->is_sbu_abnormal_state);
+		dev_info(pd_data->dev, "Fixed max_current to 1.8A because of vbus short\n");
 	}
 
 #ifdef CONFIG_USB_TYPEC_MANAGER_NOTIFIER
+	if ((pdic_sink_status->available_pdo_num > 0) &&
+			(pdic_sink_status->available_pdo_num != available_pdo_num)) {
+		policy->send_sink_cap = 1;
+		pdic_sink_status->selected_pdo_num = 1;
+	}
 	pdic_sink_status->available_pdo_num = available_pdo_num;
 	manager->origin_available_pdo_num = available_pdo_num;
 	return available_pdo_num;
@@ -1630,6 +1639,7 @@ static int sm5713_usbpd_manager_init(struct sm5713_usbpd_data *pd_data)
 	manager->origin_available_pdo_num = 0;
 	manager->uvdm_out_ok = 1;
 	manager->uvdm_in_ok = 1;
+	manager->dr_swap_cnt = 0;
 
 	init_waitqueue_head(&manager->uvdm_out_wq);
 	init_waitqueue_head(&manager->uvdm_in_wq);

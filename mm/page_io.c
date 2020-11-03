@@ -118,7 +118,7 @@ static void swap_slot_free_notify(struct page *page)
 
 		SetPageDirty(page);
 		disk->fops->swap_slot_free_notify(sis->bdev,
-				offset, false);
+				offset);
 	}
 }
 
@@ -433,37 +433,3 @@ int swap_set_page_dirty(struct page *page)
 		return __set_page_dirty_no_writeback(page);
 	}
 }
-
-#ifdef CONFIG_ZRAM_COMP_WRITEBACK
-int is_writeback_entry(swp_entry_t entry)
-{
-	struct gendisk *disk;
-	struct swap_info_struct *sis = swp_swap_info(entry);
-	unsigned long offset = swp_offset(entry);
-
-	if (!(sis->flags & SWP_BLKDEV))
-		return 0;
-
-	disk = sis->bdev->bd_disk;
-
-	if (disk->fops->ioctl)
-		return disk->fops->ioctl(sis->bdev, 0, 0, offset);
-
-	return 0;
-}
-
-void swap_writeback_entry(swp_entry_t entry)
-{
-	struct gendisk *disk;
-	struct swap_info_struct *sis = swp_swap_info(entry);
-	unsigned long offset = swp_offset(entry);
-
-	if (!(sis->flags & SWP_BLKDEV))
-		return;
-
-	disk = sis->bdev->bd_disk;
-
-	if (disk->fops->swap_slot_free_notify)
-		disk->fops->swap_slot_free_notify(sis->bdev, offset, true);
-}
-#endif

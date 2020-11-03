@@ -204,7 +204,7 @@ static int slsi_rx_amsdu_deaggregate(struct net_device *dev, struct sk_buff *skb
 		}
 		__skb_queue_tail(msdu_list, subframe);
 	}
-	slsi_kfree_skb(skb);
+	consume_skb(skb);
 	return 0;
 }
 
@@ -284,7 +284,7 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 			if (is_multicast_ether_addr(ehdr->h_dest) &&
 				!compare_ether_addr(ehdr->h_source, dev->dev_addr)) {
 				SLSI_NET_DBG2(dev, SLSI_RX, "drop locally generated multicast frame relayed back by AP\n");
-				slsi_kfree_skb(rx_skb);
+				consume_skb(rx_skb);
 				continue;
 			}
 		}
@@ -326,6 +326,69 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 			}
 		}
 
+#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+		/* NAN: multicast receive */
+		if (ndev_vif->ifnum >= SLSI_NAN_DATA_IFINDEX_START) {
+			struct net_device *other_dev;
+			struct netdev_vif *other_ndev_vif;
+			struct ethhdr *ehdr = (struct ethhdr *)(rx_skb->data);
+			u8 i, j;
+
+			if (is_multicast_ether_addr(ehdr->h_dest)) {
+				/* In case of NAN, the multicast packet is received on a NDL VIF.
+				 * NDL VIF is between two peers.
+				 * But two peers can have multiple NDP connections.
+				 * Multiple NDP connections with same peer needs multiple netdevices.
+				 *
+				 * So, loop through each net device and find if there is a match in
+				 * source address, and if so, duplicate the multicast packet, and send
+				 * them up on each netdev that matches.
+				 */
+				SLSI_NET_DBG2(dev, SLSI_RX, "NAN: multicast (source address: %pM)\n", ehdr->h_source);
+				for ((i = ndev_vif->ifnum + 1); i <= CONFIG_SCSC_WLAN_MAX_INTERFACES; i++) {
+					other_dev = (struct net_device *) sdev->netdev[i];
+					if (!other_dev)
+						continue;
+					other_ndev_vif = (struct netdev_vif *)netdev_priv(other_dev);
+					if (!other_ndev_vif)
+						continue;
+					for (j = 0; j < SLSI_PEER_INDEX_MAX; j++) {
+						if (other_ndev_vif->peer_sta_record[j] &&
+							other_ndev_vif->peer_sta_record[j]->valid &&
+						    ether_addr_equal(other_ndev_vif->peer_sta_record[j]->address, ehdr->h_source)) {
+#ifdef CONFIG_SCSC_WLAN_RX_NAPI
+							struct sk_buff *duplicate_skb = slsi_skb_copy(rx_skb, GFP_ATOMIC);
+#else
+							struct sk_buff *duplicate_skb = slsi_skb_copy(rx_skb, GFP_KERNEL);
+#endif
+							SLSI_NET_DBG2(other_dev, SLSI_RX, "NAN: source address match %pM\n", other_ndev_vif->peer_sta_record[j]->address);
+							if (!duplicate_skb) {
+								SLSI_NET_WARN(other_dev, "NAN: multicast: failed to alloc new SKB\n");
+								continue;
+							}
+
+							other_ndev_vif->peer_sta_record[j]->sinfo.rx_bytes += duplicate_skb->len;
+							other_ndev_vif->stats.rx_packets++;
+							other_ndev_vif->stats.rx_bytes += duplicate_skb->len;
+							other_ndev_vif->rx_packets[trafic_q]++;
+
+							duplicate_skb->dev = other_dev;
+							duplicate_skb->ip_summed = CHECKSUM_NONE;
+							duplicate_skb->protocol = eth_type_trans(duplicate_skb, other_dev);
+
+							slsi_dbg_untrack_skb(duplicate_skb);
+							SLSI_NET_DBG4(other_dev, SLSI_RX, "pass %u bytes to local stack\n", duplicate_skb->len);
+#ifdef CONFIG_SCSC_WLAN_RX_NAPI
+							netif_receive_skb(duplicate_skb);
+#else
+							netif_rx_ni(duplicate_skb);
+#endif
+						}
+					}
+				}
+			}
+		}
+#endif
 		if (peer) {
 			peer->sinfo.rx_bytes += rx_skb->len;
 		}
@@ -378,7 +441,7 @@ void slsi_rx_data_deliver_skb(struct slsi_dev *sdev, struct net_device *dev, str
 		slsi_traffic_mon_event_rx(sdev, dev, rx_skb);
 		slsi_dbg_untrack_skb(rx_skb);
 
-		SLSI_DBG4(sdev, SLSI_RX, "pass %u bytes to local stack\n", rx_skb->len);
+		SLSI_NET_DBG4(dev, SLSI_RX, "pass %u bytes to local stack\n", rx_skb->len);
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI
 		conf_hip4_ver = scsc_wifi_get_hip_config_version(&sdev->hip4_inst.hip_control->init);
 		if (conf_hip4_ver == 4) {
@@ -550,15 +613,7 @@ static int slsi_rx_napi_process(struct slsi_dev *sdev, struct sk_buff *skb)
 	rcu_read_lock();
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 	if (vif >= SLSI_NAN_DATA_IFINDEX_START && fapi_get_sigid(skb) == MA_UNITDATA_IND) {
-		struct ethhdr *eth_hdr = (struct ethhdr *)fapi_get_data(skb);
-		u32 data_len = fapi_get_datalen(skb);
-
-		if (!eth_hdr || data_len < sizeof(*eth_hdr)) {
-			SLSI_WARN(sdev, "Unexpected datalen:%d\n", data_len);
-			rcu_read_unlock();
-			return -EINVAL;
-		}
-		dev = slsi_get_netdev_by_mac_addr_lockless(sdev, eth_hdr->h_dest, SLSI_NAN_DATA_IFINDEX_START);
+		dev = slsi_nan_get_netdev_rcu(sdev, skb);
 	} else {
 		dev = slsi_get_netdev_rcu(sdev, vif);
 	}
@@ -667,15 +722,7 @@ static int slsi_rx_queue_data(struct slsi_dev *sdev, struct sk_buff *skb)
 	rcu_read_lock();
 #ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 	if (vif >= SLSI_NAN_DATA_IFINDEX_START && fapi_get_sigid(skb) == MA_UNITDATA_IND) {
-		struct ethhdr *eth_hdr = (struct ethhdr *)fapi_get_data(skb);
-		u32 data_len = fapi_get_datalen(skb);
-
-		if (!eth_hdr || data_len < sizeof(*eth_hdr)) {
-			SLSI_ERR(sdev, "ma_untidata_ind dropped. datalen:%d\n", data_len);
-			rcu_read_unlock();
-			return 0; /* return success */
-		}
-		dev = slsi_get_netdev_by_mac_addr_locked(sdev, eth_hdr->h_dest, SLSI_NAN_DATA_IFINDEX_START);
+		dev = slsi_nan_get_netdev_rcu(sdev, skb);
 	} else {
 		dev = slsi_get_netdev_rcu(sdev, vif);
 	}

@@ -20,3 +20,4 @@ obj-$(and $(CONFIG_EXYNOS_DECON_LCD_S6E3FA9_A51),$(CONFIG_SUPPORT_POC_FLASH)) +=
 obj-$(CONFIG_EXYNOS_DECON_LCD_NT36672A_XCOVERPRO)	+= nt36672a_xcoverpro_lcd_ctrl.o
 obj-$(CONFIG_EXYNOS_DECON_LCD_HX83102E_GTA4XL)	+= hx83102e_gta4xl_lcd_ctrl.o
 obj-$(CONFIG_EXYNOS_DECON_LCD_EA8076_M31)	+= ea8076_m31_lcd_ctrl.o timenval.o
+obj-$(CONFIG_EXYNOS_DECON_LCD_EA8076_M31S)	+= ea8076_m31s_lcd_ctrl.o timenval.o

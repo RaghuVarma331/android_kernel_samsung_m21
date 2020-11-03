@@ -44,8 +44,8 @@ static void print_sbd_config(struct sbd_link_device *sl)
 #ifdef DEBUG_MODEM_IF
 	int i;
 
-	pr_err("mif: SBD_IPC {shmem_base:0x%lX shmem_size:%d}\n",
-		(unsigned long)sl->shmem, sl->shmem_size);
+	pr_err("mif: SBD_IPC {shmem_base:0x%pK shmem_size:%d}\n",
+		sl->shmem, sl->shmem_size);
 
 	pr_err("mif: SBD_IPC {version:%d num_channels:%d rbps_offset:%d}\n",
 		sl->g_desc->version, sl->g_desc->num_channels,
@@ -405,7 +405,9 @@ static unsigned int init_ctrl_tables(struct sbd_link_device *sl, int num_iodevs,
 			iodevs[i].format == IPC_MULTI_RAW) {
 			/* Skip making rb if mismatch region info */
 			if (iodevs[i].attrs & IODEV_ATTR(ATTR_OPTION_REGION) &&
-				strcmp(iodevs[i].option_region, CONFIG_OPTION_REGION))
+				strncmp(iodevs[i].option_region,
+					CONFIG_OPTION_REGION,
+					strlen(iodevs[i].option_region)))
 				continue;
 
 			/* Change channel to Qos priority */

@@ -154,7 +154,13 @@ static bool disable_error_handling;
 module_param(disable_error_handling, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(disable_error_handling, "Disable error handling");
 
-int disable_recovery_handling = 1; /* MEMDUMP_FILE_FOR_RECOVERY : for /sys/wifi/memdump */
+#if defined(SCSC_SEP_VERSION) && (SCSC_SEP_VERSION >= 100000)
+int disable_recovery_handling = 2; /* MEMDUMP_FILE_FOR_RECOVERY : for /sys/wifi/memdump */
+#else
+/* AOSP */
+int disable_recovery_handling = 1; /* Recovery disabled, enable in init.rc, not here. */
+#endif
+
 module_param(disable_recovery_handling, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(disable_recovery_handling, "Disable recovery handling");
 static bool disable_recovery_from_memdump_file = true;
@@ -669,7 +675,7 @@ static char *chip_version(u32 rf_hw_ver)
 	case 0x00b2:
 		return "S620";
 	case 0x0000:
-#ifndef CONFIG_SOC_EXYNOS9610
+#if !defined CONFIG_SOC_EXYNOS9610 && !defined CONFIG_SOC_EXYNOS9630
 		return "Error: check if RF chip is present";
 #else
 		return "Unknown";

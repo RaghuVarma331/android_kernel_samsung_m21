@@ -31,7 +31,7 @@
 #include <scsc/scsc_logring.h>
 #include "mif_reg_S5E9610.h"
 #include "platform_mif_module.h"
-#ifdef CONFIG_ARCH_EXYNOS
+#if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_EXYNOS9)
 #include <linux/soc/samsung/exynos-soc.h>
 #endif
 
@@ -122,6 +122,7 @@ struct platform_mif {
 	enum wlbt_boot_state {
 		WLBT_BOOT_IN_RESET = 0,
 		WLBT_BOOT_WAIT_CFG_REQ,
+		WLBT_BOOT_ACK_CFG_REQ,
 		WLBT_BOOT_CFG_DONE,
 		WLBT_BOOT_CFG_ERROR
 	} boot_state;
@@ -585,6 +586,14 @@ irqreturn_t platform_wdog_isr(int irq, void *data)
 	if (platform->reset_request_handler != platform_mif_irq_reset_request_default_handler) {
 		disable_irq_nosync(platform->wlbt_irq[PLATFORM_MIF_WDOG].irq_num);
 		platform->reset_request_handler(irq, platform->irq_reset_request_dev);
+		if (platform->boot_state == WLBT_BOOT_WAIT_CFG_REQ) {
+			/* Spurious interrupt from the SOC during CFG_REQ phase, just consume it */
+			SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "Spurious wdog irq during cfg_req phase\n");
+			return IRQ_HANDLED;
+		} else {
+			disable_irq_nosync(platform->wlbt_irq[PLATFORM_MIF_WDOG].irq_num);
+			platform->reset_request_handler(irq, platform->irq_reset_request_dev);
+		}
 	} else {
 		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "WDOG Interrupt reset_request_handler not registered\n");
 		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "Disabling unhandled WDOG IRQ.\n");
@@ -799,12 +808,15 @@ irqreturn_t platform_cfg_req_isr(int irq, void *data)
 
 	while (ka_patch_addr < (ka_patch + ARRAY_SIZE(ka_patch))) {
 		CHECK(regmap_write(platform->boot_cfg, ka_addr, *ka_patch_addr));
-		ka_addr += sizeof(ka_patch[0]);
+		ka_addr += (unsigned int)sizeof(ka_patch[0]);
 		ka_patch_addr++;
 	}
 
 	/* Notify PMU of configuration done */
 	CHECK(regmap_write(platform->boot_cfg, 0x0, 0x0));
+
+	/* WLBT FW could panic as soon as CFG_ACK is written. So change state */
+	platform->boot_state = WLBT_BOOT_ACK_CFG_REQ;
 
 	/* BOOT_CFG_ACK */
 	CHECK(regmap_write(platform->boot_cfg, 0x4, 0x1));
@@ -830,9 +842,6 @@ irqreturn_t platform_cfg_req_isr(int irq, void *data)
 
 	/* Signal triggering function that the IRQ arrived and CFG was done */
 	complete(&platform->cfg_ack);
-
-	/* Re-enable IRQ here to allow spurious interrupt to be tracked */
-	enable_irq(platform->wlbt_irq[PLATFORM_MIF_CFG_REQ].irq_num);
 
 	return IRQ_HANDLED;
 cfg_error:
@@ -1178,7 +1187,7 @@ static int platform_mif_reset(struct scsc_mif_abs *interface, bool reset)
 
 	if (enable_platform_mif_arm_reset || !reset) {
 		if (!reset) { /* Release from reset */
-#ifdef CONFIG_ARCH_EXYNOS
+#if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_EXYNOS9)
 			SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
 				"SOC_VERSION: product_id 0x%x, rev 0x%x\n",
 				exynos_soc_info.product_id, exynos_soc_info.revision);

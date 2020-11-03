@@ -691,6 +691,8 @@ struct abox_data {
 	atomic_t suspend_state;
 	struct wakeup_source ws;
 	struct wakeup_source ws_boot;
+	unsigned int bootargs_offset;
+	const char *bootargs;
 };
 
 struct abox_compr_data {

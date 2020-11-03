@@ -278,9 +278,7 @@ static int fimc_is_hw_mcsc_open(struct fimc_is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, FRAMEMGR_ID_HW | (1 << hw_ip->id), "HWMCS");
-	frame_manager_probe(hw_ip->framemgr_late, FRAMEMGR_ID_HW | (1 << hw_ip->id) | 0xF000, "HWMCS LATE");
 	frame_manager_open(hw_ip->framemgr, FIMC_IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, FIMC_IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct fimc_is_hw_mcsc));
 	if(!hw_ip->priv_info) {
@@ -333,7 +331,6 @@ err_query_cap:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	return ret;
 }
@@ -402,7 +399,6 @@ static int fimc_is_hw_mcsc_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 	clear_bit(HW_MCS_YSUM_CFG, &hw_ip->state);
@@ -1540,13 +1536,22 @@ int fimc_is_hw_mcsc_poly_phase(struct fimc_is_hw_ip *hw_ip, struct param_mcs_inp
 	fimc_is_scaler_set_poly_src_size(hw_ip->regs, output_id, src_pos_x, src_pos_y,
 		src_width, src_height);
 
-	if ((src_width <= (out_width * MCSC_POLY_RATIO_DOWN))
-		&& (out_width <= (src_width * MCSC_POLY_RATIO_UP))) {
+	if (((src_width <= (out_width * MCSC_POLY_QUALITY_RATIO_DOWN))
+		&& (out_width <= (src_width * MCSC_POLY_RATIO_UP)))
+		|| (output_id == MCSC_OUTPUT3 || output_id == MCSC_OUTPUT4)) {
 		poly_dst_width = out_width;
 		post_en = false;
+	} else if ((src_width <= (out_width * MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
+		&& ((out_width * MCSC_POLY_QUALITY_RATIO_DOWN) < src_width)) {
+		poly_dst_width = MCSC_ROUND_UP(src_width / MCSC_POLY_QUALITY_RATIO_DOWN, 2);
+		if (poly_dst_width > MCSC_POST_MAX_WIDTH)
+			poly_dst_width = MCSC_POST_MAX_WIDTH;
+		post_en = true;
 	} else if ((src_width <= (out_width * MCSC_POLY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
-		&& ((out_width * MCSC_POLY_RATIO_DOWN) < src_width)) {
-		poly_dst_width = MCSC_ROUND_UP(src_width / MCSC_POLY_RATIO_DOWN, 2);
+		&& ((out_width *  MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN) < src_width)) {
+		poly_dst_width = MCSC_ROUND_UP(out_width * MCSC_POST_RATIO_DOWN, 2);
+		if (poly_dst_width > MCSC_POST_MAX_WIDTH)
+			poly_dst_width = MCSC_POST_MAX_WIDTH;
 		post_en = true;
 	} else {
 		mserr_hw("hw_mcsc_poly_phase: Unsupported W ratio, (%dx%d)->(%dx%d)\n",
@@ -1555,16 +1560,21 @@ int fimc_is_hw_mcsc_poly_phase(struct fimc_is_hw_ip *hw_ip, struct param_mcs_inp
 		post_en = true;
 	}
 
-	if ((src_height <= (out_height * MCSC_POLY_RATIO_DOWN))
-		&& (out_height <= (src_height * MCSC_POLY_RATIO_UP))) {
+	if (((src_height <= (out_height * MCSC_POLY_QUALITY_RATIO_DOWN))
+		&& (out_height <= (src_height * MCSC_POLY_RATIO_UP)))
+		|| (output_id == MCSC_OUTPUT3 || output_id == MCSC_OUTPUT4)) {
 		poly_dst_height = out_height;
 		post_en = false;
+	} else if ((src_height <= (out_height * MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
+		&& ((out_height * MCSC_POLY_QUALITY_RATIO_DOWN) < src_height)) {
+		poly_dst_height = (src_height / MCSC_POLY_QUALITY_RATIO_DOWN);
+		post_en = true;
 	} else if ((src_height <= (out_height * MCSC_POLY_RATIO_DOWN * MCSC_POST_RATIO_DOWN))
-		&& ((out_height * MCSC_POLY_RATIO_DOWN) < src_height)) {
-		poly_dst_height = (src_height / MCSC_POLY_RATIO_DOWN);
+		&& ((out_height * MCSC_POLY_QUALITY_RATIO_DOWN * MCSC_POST_RATIO_DOWN) < src_height)) {
+		poly_dst_height = (out_height * MCSC_POST_RATIO_DOWN);
 		post_en = true;
 	} else {
-		mserr_hw("hw_mcsc_poly_phase: Unsupported H ratio, (%dx%d)->(%dx%d)\n",
+		mserr_hw("hw_mcsc_poly_phase: Unsupported V ratio, (%dx%d)->(%dx%d)\n",
 			instance, hw_ip, src_width, src_height, out_width, out_height);
 		poly_dst_height = (src_height / MCSC_POLY_RATIO_DOWN);
 		post_en = true;

@@ -1,6 +1,6 @@
 /****************************************************************************
  *
- * Copyright (c) 2014 - 2019 Samsung Electronics Co., Ltd. All rights reserved
+ * Copyright (c) 2014 - 2020 Samsung Electronics Co., Ltd. All rights reserved
  *
  ****************************************************************************/
 
@@ -58,7 +58,7 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_DEBUG_SAP_VERSION                   0x0d03
 #define FAPI_TEST_SAP_VERSION                    0x0e00
 #define FAPI_DATA_SAP_VERSION                    0x0e01
-#define FAPI_CONTROL_SAP_VERSION                 0x0e03
+#define FAPI_CONTROL_SAP_VERSION                 0x0e05
 
 #define FAPI_ACLPOLICY_BLACKLIST   0x0000
 #define FAPI_ACLPOLICY_WHITELIST   0x0001
@@ -109,6 +109,7 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_CWTYPE_DC         0x0003
 #define FAPI_CWTYPE_PRN        0x0004
 
+#define FAPI_DATARATE_NONE                            0x0000
 #define FAPI_DATARATE_11B20_1MBPS                     0x0001
 #define FAPI_DATARATE_11B20_2MBPS                     0x0002
 #define FAPI_DATARATE_11B20_5M5BPS                    0x0005
@@ -858,6 +859,18 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_EVENT_WIFI_EVENT_DRIVER_PNO_SCAN_REQUESTED               0x0035
 #define FAPI_EVENT_WIFI_EVENT_DRIVER_PNO_SCAN_RESULT_FOUND            0x0036
 #define FAPI_EVENT_WIFI_EVENT_DRIVER_PNO_SCAN_COMPLETE                0x0037
+#define FAPI_EVENT_WIFI_EVENT_FW_BTM_FRAME_REQUEST                    0x0038
+#define FAPI_EVENT_WIFI_EVENT_FW_BTM_FRAME_RESPONSE                   0x0039
+#define FAPI_EVENT_WIFI_EVENT_FW_NR_FRAME_REQUEST                     0x003a
+#define FAPI_EVENT_WIFI_EVENT_FW_CONNECTION_ATTEMPT_ABORTED           0x003c
+#define FAPI_EVENT_WIFI_EVENT_ROAM_AUTH_TIMEOUT                       0x003d
+#define FAPI_EVENT_WIFI_EVENT_ROAM_SCAN_RESULT                        0x003e
+#define FAPI_EVENT_WIFI_EVENT_ROAM_RSSI_THRESHOLD                     0x003f
+#define FAPI_EVENT_WIFI_EVENT_FW_BEACON_REPORT_REQUEST                0x0040
+#define FAPI_EVENT_WIFI_EVENT_FW_FTM_RANGE_REQUEST                    0x0041
+#define FAPI_EVENT_WIFI_EVENT_FW_NAN_ROLE_TYPE                        0x0042
+#define FAPI_EVENT_WIFI_EVENT_FW_FRAME_TRANSMIT_FAILURE               0x0043
+#define FAPI_EVENT_WIFI_EVENT_FW_NR_FRAME_RESPONSE                    0x0044
 #define FAPI_EVENT_WIFI_EVENT_BLACKOUT_START                          0x0064
 #define FAPI_EVENT_WIFI_EVENT_BLACKOUT_STOP                           0x0065
 #define FAPI_EVENT_WIFI_EVENT_NAN_PUBLISH_TERMINATED                  0x0100
@@ -1011,6 +1024,7 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_REASONCODE_NAN_TRANSMIT_FOLLOWUP_FAILURE                0x9007
 #define FAPI_REASONCODE_NDP_ACCEPTED                                 0x9008
 #define FAPI_REASONCODE_NDP_REJECTED                                 0x9009
+#define FAPI_REASONCODE_NDP_RESPONSE_TIMEOUT                         0x900a
 
 #define FAPI_REPORTMODE_RESERVED            0x0001
 #define FAPI_REPORTMODE_END_OF_SCAN_CYCLE   0x0002
@@ -1064,6 +1078,13 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_RTTBANDWIDTH_80MHZ    0x0010
 #define FAPI_RTTBANDWIDTH_160MHZ   0x0020
 
+#define FAPI_RTTPEERTYPE_NOT_SPECIFIED   0x00
+#define FAPI_RTTPEERTYPE_AP              0x01
+#define FAPI_RTTPEERTYPE_STA             0x02
+#define FAPI_RTTPEERTYPE_P2P_GO          0x03
+#define FAPI_RTTPEERTYPE_P2P_CLIENT      0x04
+#define FAPI_RTTPEERTYPE_NAN             0x05
+
 #define FAPI_RTTPREAMBLE_LEGACY   0x0001
 #define FAPI_RTTPREAMBLE_HT       0x0002
 #define FAPI_RTTPREAMBLE_VHT      0x0004
@@ -1084,8 +1105,8 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_RTTSTATUS_FAIL_INVALID_REQUEST          0x000d
 #define FAPI_RTTSTATUS_FAIL_FTM_PARAMETER_OVERRIDE   0x000f
 
-#define FAPI_RTTTYPE_ONE_SIDED   0x0001
-#define FAPI_RTTTYPE_TWO_SIDED   0x0002
+#define FAPI_RTTTYPE_ONE_SIDED   0x01
+#define FAPI_RTTTYPE_TWO_SIDED   0x02
 
 #define FAPI_RULEFLAG_NO_IR        0x0001
 #define FAPI_RULEFLAG_DFS          0x0002
@@ -1119,15 +1140,16 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_SCANTYPE_OBSS_SCAN                   0x0006
 #define FAPI_SCANTYPE_AP_AUTO_CHANNEL_SELECTION   0x0007
 #define FAPI_SCANTYPE_GSCAN                       0x0009
-#define FAPI_SCANTYPE_MEASUREMENT_SCAN            0x000a
-#define FAPI_SCANTYPE_SOFT_CACHED_ROAMING_SCAN    0x000b
-#define FAPI_SCANTYPE_SOFT_ALL_ROAMING_SCAN       0x000c
-#define FAPI_SCANTYPE_HARD_CACHED_ROAMING_SCAN    0x000d
-#define FAPI_SCANTYPE_HARD_ALL_ROAMING_SCAN       0x000e
-#define FAPI_SCANTYPE_OBSS_SCAN_INTERNAL          0x000f
-#define FAPI_SCANTYPE_NAN_SCAN                    0x0010
-#define FAPI_SCANTYPE_FTM_NEIGHBOUR_SCAN          0x0011
-#define FAPI_SCANTYPE_FIRST_ILLEGAL               0x0012
+#define FAPI_SCANTYPE_SINGLE_CHANNEL_SCAN         0x000a
+#define FAPI_SCANTYPE_MEASUREMENT_SCAN            0x0010
+#define FAPI_SCANTYPE_SOFT_CACHED_ROAMING_SCAN    0x0011
+#define FAPI_SCANTYPE_SOFT_FULL_ROAMING_SCAN      0x0012
+#define FAPI_SCANTYPE_HARD_CACHED_ROAMING_SCAN    0x0013
+#define FAPI_SCANTYPE_HARD_FULL_ROAMING_SCAN      0x0014
+#define FAPI_SCANTYPE_OBSS_SCAN_INTERNAL          0x0015
+#define FAPI_SCANTYPE_NAN_SCAN                    0x0016
+#define FAPI_SCANTYPE_FTM_NEIGHBOUR_SCAN          0x0017
+#define FAPI_SCANTYPE_FIRST_ILLEGAL               0x0018
 
 #define FAPI_STATSSTOPBITMAP_STATS_RADIO              0x0001
 #define FAPI_STATSSTOPBITMAP_STATS_RADIO_CCA          0x0002
@@ -1156,6 +1178,13 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 
 #define FAPI_TXDATATYPE_DATA_WORD     0x0000
 #define FAPI_TXDATATYPE_DATA_RANDOM   0x0001
+#define FAPI_TXDATATYPE_DATA_CUSTOM   0x0002
+
+#define FAPI_TXHEMODE_HE_SU                 0x0000
+#define FAPI_TXHEMODE_HE_ER_SU              0x0001
+#define FAPI_TXHEMODE_HE_ER_SU_10MHZ        0x0002
+#define FAPI_TXHEMODE_HE_MU_TB_STANDALONE   0x0003
+#define FAPI_TXHEMODE_HE_MU_TB              0x0004
 
 #define FAPI_TXREADFLAGS_NONE             0x0000
 #define FAPI_TXREADFLAGS_FRAME_COUNTING   0x0001
@@ -1178,6 +1207,8 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define FAPI_TXSETPARAMSFLAGS_IBSS_FRAMES            0x2000
 #define FAPI_TXSETPARAMSFLAGS_BEAMFORMING            0x4000
 #define FAPI_TXSETPARAMSFLAGS_DISABLE_EXTERNAL_LNA   0x8000
+
+#define FAPI_TXSETPARAMSFLAGS2_NONE   0x0000
 
 #define FAPI_TYPEOFAIRPOWER_EIRP   0x00
 #define FAPI_TYPEOFAIRPOWER_TPO    0x01
@@ -1325,9 +1356,10 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define MLME_SET_ROAMING_TYPE_REQ             0x2041
 #define MLME_SET_BAND_REQ                     0x2042
 #define MLME_SET_ROAMING_PARAMETERS_REQ       0x2043
-#define MLME_SPARE_SIGNAL_1_REQ               0x2044
-#define MLME_SPARE_SIGNAL_2_REQ               0x2045
-#define MLME_SPARE_SIGNAL_3_REQ               0x2046
+#define MLME_WIFISHARING_PERMITTED_CHANNELS_REQ 0x2044
+#define MLME_SPARE_SIGNAL_1_REQ               0x2045
+#define MLME_SPARE_SIGNAL_2_REQ               0x2046
+#define MLME_SPARE_SIGNAL_3_REQ               0x2047
 #define MLME_GET_CFM                          0x2101
 #define MLME_SET_CFM                          0x2102
 #define MLME_POWERMGT_CFM                     0x2103
@@ -1387,9 +1419,10 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define MLME_SET_ROAMING_TYPE_CFM             0x2141
 #define MLME_SET_BAND_CFM                     0x2142
 #define MLME_SET_ROAMING_PARAMETERS_CFM       0x2143
-#define MLME_SPARE_SIGNAL_1_CFM               0x2144
-#define MLME_SPARE_SIGNAL_2_CFM               0x2145
-#define MLME_SPARE_SIGNAL_3_CFM               0x2146
+#define MLME_WIFISHARING_PERMITTED_CHANNELS_CFM 0x2144
+#define MLME_SPARE_SIGNAL_1_CFM               0x2145
+#define MLME_SPARE_SIGNAL_2_CFM               0x2146
+#define MLME_SPARE_SIGNAL_3_CFM               0x2147
 #define MLME_CONNECT_RES                      0x2200
 #define MLME_CONNECTED_RES                    0x2201
 #define MLME_REASSOCIATE_RES                  0x2202
@@ -1433,7 +1466,6 @@ static inline struct slsi_skb_cb *slsi_skb_cb_init(struct sk_buff *skb)
 #define MLME_NDP_REQUEST_IND                  0x231f
 #define MLME_NDP_REQUESTED_IND                0x2320
 #define MLME_NDP_RESPONSE_IND                 0x2321
-#define MLME_NDP_TERMINATE_IND                0x2322
 #define MLME_NDP_TERMINATED_IND               0x2323
 #define MLME_SPARE_5_IND                      0x2324
 #define MLME_SPARE_SIGNAL_1_IND               0x2325
@@ -2210,6 +2242,7 @@ struct fapi_signal {
 			__le16 ndl_vif_index;
 			__le16 match_id;
 			u8     local_ndp_interface_address[ETH_ALEN];
+			u8     peer_nmi[ETH_ALEN];
 			__le32 spare_1;
 			__le32 spare_2;
 			__le32 spare_3;
@@ -2310,6 +2343,13 @@ struct fapi_signal {
 			__le32 spare_3;
 			u8     dr[0];
 		} __packed mlme_set_roaming_parameters_req;
+		struct {
+			__le16 vif;
+			__le32 spare_1;
+			__le32 spare_2;
+			__le32 spare_3;
+			u8     dr[0];
+		} __packed mlme_wifisharing_permitted_channels_req;
 		struct {
 			__le16 vif;
 			__le32 spare_1;
@@ -2814,6 +2854,14 @@ struct fapi_signal {
 			__le32 spare_2;
 			__le32 spare_3;
 			u8     dr[0];
+		} __packed mlme_wifisharing_permitted_channels_cfm;
+		struct {
+			__le16 vif;
+			__le16 result_code;
+			__le32 spare_1;
+			__le32 spare_2;
+			__le32 spare_3;
+			u8     dr[0];
 		} __packed mlme_spare_signal_1_cfm;
 		struct {
 			__le16 vif;
@@ -3208,15 +3256,6 @@ struct fapi_signal {
 			__le32 spare_2;
 			__le32 spare_3;
 			u8     dr[0];
-		} __packed mlme_ndp_terminate_ind;
-		struct {
-			__le16 vif;
-			__le16 ndl_vif_index;
-			u8     local_ndp_interface_address[ETH_ALEN];
-			__le32 spare_1;
-			__le32 spare_2;
-			__le32 spare_3;
-			u8     dr[0];
 		} __packed mlme_ndp_terminated_ind;
 		struct {
 			__le16 vif;
@@ -3527,8 +3566,10 @@ struct fapi_signal {
 			__le16 aid;
 			__le16 distance_to_band_edge_half_mhz;
 			__le16 regulatory_domain;
-			__le16 spare_0;
-			__le32 spare_1;
+			__le16 flags2;
+			__le16 he_mode;
+			u8     he_ru_allocation;
+			u8     he_ltf;
 			__le32 spare_2;
 			__le32 spare_3;
 			u8     dr[0];
@@ -3566,7 +3607,8 @@ struct fapi_signal {
 			u8     bssid[ETH_ALEN];
 			__le16 aid;
 			__le16 num_mpdus_per_ampdu;
-			__le32 spare_1;
+			__le16 regulatory_domain;
+			__le16 spare_1;
 			__le32 spare_2;
 			__le32 spare_3;
 			u8     dr[0];
@@ -4428,6 +4470,7 @@ static inline u16 fapi_get_expected_size(struct sk_buff *skb)
 		fapi_sig_size(mlme_set_roaming_type_req),
 		fapi_sig_size(mlme_set_band_req),
 		fapi_sig_size(mlme_set_roaming_parameters_req),
+		fapi_sig_size(mlme_wifisharing_permitted_channels_req),
 		fapi_sig_size(mlme_spare_signal_1_req),
 		fapi_sig_size(mlme_spare_signal_2_req),
 		fapi_sig_size(mlme_spare_signal_3_req),
@@ -4563,6 +4606,7 @@ static inline u16 fapi_get_expected_size(struct sk_buff *skb)
 		fapi_sig_size(mlme_set_roaming_type_cfm),
 		fapi_sig_size(mlme_set_band_cfm),
 		fapi_sig_size(mlme_set_roaming_parameters_cfm),
+		fapi_sig_size(mlme_wifisharing_permitted_channels_cfm),
 		fapi_sig_size(mlme_spare_signal_1_cfm),
 		fapi_sig_size(mlme_spare_signal_2_cfm),
 		fapi_sig_size(mlme_spare_signal_3_cfm),
@@ -4656,7 +4700,7 @@ static inline u16 fapi_get_expected_size(struct sk_buff *skb)
 		fapi_sig_size(mlme_ndp_request_ind),
 		fapi_sig_size(mlme_ndp_requested_ind),
 		fapi_sig_size(mlme_ndp_response_ind),
-		fapi_sig_size(mlme_ndp_terminate_ind),
+		0,
 		fapi_sig_size(mlme_ndp_terminated_ind),
 		fapi_sig_size(mlme_spare_5_ind),
 		fapi_sig_size(mlme_spare_signal_1_ind),

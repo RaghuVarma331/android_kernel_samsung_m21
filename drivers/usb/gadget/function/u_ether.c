@@ -119,8 +119,7 @@ struct eth_dev {
 /* for dual-speed hardware, use deeper queues at high/super speed */
 static inline int qlen(struct usb_gadget *gadget, unsigned qmult)
 {
-	if (gadget_is_dualspeed(gadget) && (gadget->speed == USB_SPEED_HIGH ||
-					    gadget->speed == USB_SPEED_SUPER))
+	if (gadget_is_dualspeed(gadget))
 		return qmult * DEFAULT_QLEN;
 	else
 		return DEFAULT_QLEN;
@@ -632,7 +631,7 @@ static void tx_complete(struct usb_ep *ep, struct usb_request *req)
 				retval = usb_ep_queue(in, new_req, GFP_ATOMIC);
 				switch (retval) {
 				default:
-					printk(KERN_ERR"usb: dropped tx_complete_newreq(%p)\n", new_req);
+					printk(KERN_ERR"usb: dropped tx_complete_newreq(%pK)\n", new_req);
 					DBG(dev, "tx queue err %d\n", retval);
 					new_req->length = 0;
 					spin_lock(&dev->req_lock);
@@ -1213,8 +1212,8 @@ struct eth_dev *gether_setup_name(struct usb_gadget *g,
 		free_netdev(net);
 		dev = ERR_PTR(status);
 	} else {
-		INFO(dev, "MAC %pM\n", net->dev_addr);
-		INFO(dev, "HOST MAC %pM\n", dev->host_mac);
+		DBG(dev, "MAC %pM\n", net->dev_addr);
+		DBG(dev, "HOST MAC %pM\n", dev->host_mac);
 
 		/*
 		 * two kinds of host-initiated state changes:
@@ -1535,7 +1534,7 @@ int gether_alloc_request(struct gether *link)
 
 	result = alloc_requests(dev, link, qlen(dev->gadget,
 				dev->qmult));
-
+	printk("usb: %s qlen %d\n", __func__, qlen(dev->gadget, dev->qmult));
 	return result;
 }
 

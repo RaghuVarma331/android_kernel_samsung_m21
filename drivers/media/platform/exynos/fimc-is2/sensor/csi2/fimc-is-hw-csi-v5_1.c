@@ -37,6 +37,11 @@ void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance)
 #endif
 }
 
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc)
+{
+	return fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_FRM_CNT_CH0 + vc]);
+}
+
 int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
 		u32 lanes, u32 pd_mode, const char *conid, u32 *pixel_mode)
 {
@@ -55,7 +60,8 @@ int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
 	target_clk = clk_get_rate(target);
 	if (!target_clk) {
 		err("%s: clk value is zero: %s\n", __func__, conid);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_get_rate;
 	}
 
 	if (pd_mode == PD_MOD1) {
@@ -78,6 +84,9 @@ int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
 	}
 
 skip_clk_check:
+err_get_rate:
+	clk_put(target);
+
 	return ret;
 }
 
@@ -300,6 +309,63 @@ int csi_hw_s_control(u32 __iomem *base_reg, u32 id, u32 value)
 
 	return 0;
 }
+
+#ifdef SUPPORT_REMOSAIC_CROP_ZOOM
+int csi_hw_s_config_crop_zoom(u32 __iomem *base_reg,
+	u32 vc, struct fimc_is_vci_config *config, u32 width, u32 height)
+{
+	int ret = 0;
+	u32 val, parallel;
+	u32 pd_mode;
+	u32 pixel_mode = CSIS_PIXEL_MODE_DUAL;
+	struct fimc_is_sensor_cfg *sensor_cfg;
+
+	sensor_cfg = container_of(config, struct fimc_is_sensor_cfg, input[vc]);
+	pd_mode = sensor_cfg->pd_mode;
+
+	if (vc > CSI_VIRTUAL_CH_3) {
+		err("invalid vc(%d)", vc);
+		ret = -EINVAL;
+		goto p_err;
+	}
+	if ((config->hwformat == HW_FORMAT_YUV420_8BIT) ||
+		(config->hwformat == HW_FORMAT_YUV422_8BIT))
+			parallel = 1;
+	else
+		parallel = 0;
+
+	if (vc == CSI_VIRTUAL_CH_0) {
+		if (pd_mode == PD_MOD1 || pd_mode == PD_MSPD)
+			pixel_mode = CSIS_PIXEL_MODE_QUAD;
+	} else if (vc == CSI_VIRTUAL_CH_1) {
+		if (pd_mode == PD_MOD3)
+			pixel_mode = CSIS_PIXEL_MODE_QUAD;
+	}
+
+	val = fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_ISP_CONFIG_CH0 + (vc * 3)]);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_VIRTUAL_CHANNEL], config->map);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_DATAFORMAT], config->hwformat);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_DECOMP_EN], config->hwformat >> DECOMP_EN_BIT);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_DECOMP_PREDICT],
+			config->hwformat >> DECOMP_PREDICT_BIT);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_PIXEL_MODE], pixel_mode);
+	fimc_is_hw_set_reg(base_reg, &csi_regs[CSIS_R_ISP_CONFIG_CH0 + (vc * 3)], val);
+
+	val = fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_ISP_RESOL_CH0 + (vc * 3)]);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_VRESOL], height);
+	val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_HRESOL], width);
+	fimc_is_hw_set_reg(base_reg, &csi_regs[CSIS_R_ISP_RESOL_CH0 + (vc * 3)], val);
+
+	if (config->hwformat & (1 << DECOMP_EN_BIT)) {
+		val = fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_ISP_SYNC_CH0 + (vc * 3)]);
+		val = fimc_is_hw_set_field_value(val, &csi_fields[CSIS_F_HSYNC_LINTV], 7);
+		fimc_is_hw_set_reg(base_reg, &csi_regs[CSIS_R_ISP_SYNC_CH0 + (vc * 3)], val);
+	}
+
+p_err:
+	return ret;
+}
+#endif
 
 int csi_hw_s_config(u32 __iomem *base_reg,
 	u32 vc, struct fimc_is_vci_config *config, u32 width, u32 height)

@@ -1868,21 +1868,6 @@ start:
 		if (async)
 			hba->clk_gating.active_reqs--;
 	case CLKS_ON:
-		/*
-		 * Wait for the ungate work to complete if in progress.
-		 * Though the clocks may be in ON state, the link could
-		 * still be in hibner8 state if hibern8 is allowed
-		 * during clock gating.
-		 * Make sure we exit hibern8 state also in addition to
-		 * clocks being ON.
-		 */
-		if (!async && ufshcd_can_hibern8_during_gating(hba) &&
-			ufshcd_is_link_hibern8(hba)) {
-			spin_unlock_irqrestore(hba->host->host_lock, flags);
-			flush_work(&hba->clk_gating.ungate_work);
-			spin_lock_irqsave(hba->host->host_lock, flags);
-			goto start;
-		}
 		break;
 	case REQ_CLKS_OFF:
 		if (cancel_delayed_work(&hba->clk_gating.gate_work)) {
@@ -3120,8 +3105,7 @@ static bool ufshcd_get_dev_cmd_tag(struct ufs_hba *hba, int *tag_out)
 
 	do {
 		tmp = ~hba->lrb_in_use;
-		tmp &= BITMAP_LAST_WORD_MASK(hba->nutrs);
-		tag = (int)(tmp) ? __fls(tmp) : ~0;
+		tag = find_last_bit(&tmp, hba->nutrs);
 		if (tag >= hba->nutrs)
 			goto out;
 	} while (test_and_set_bit_lock(tag, &hba->lrb_in_use));
@@ -3154,18 +3138,9 @@ static int ufshcd_exec_dev_cmd(struct ufs_hba *hba,
 	int tag;
 	struct completion wait;
 	unsigned long flags;
-	ktime_t start = ktime_get();
 
-	/*
-	* Add timeout to ensure link actvie status.
-	* There is a case where link activity takes
-	* a long time during tw control.
-	*/
-	while (!ufshcd_is_link_active(hba)) {
-		if (ktime_to_us(ktime_sub(ktime_get(), start)) > 50000)
-			return -EPERM;
-		usleep_range(200, 400);
-	}
+	if (!ufshcd_is_link_active(hba))
+		return -EPERM;
 
 	down_read(&hba->clk_scaling_lock);
 
@@ -7522,17 +7497,21 @@ retry:
 
 	dev_info(hba->dev, "UFS device initialized\n");
 
-	/* Init check for device descriptor sizes */
-	ufshcd_init_desc_sizes(hba);
+	if (!ufshcd_eh_in_progress(hba) && !hba->pm_op_in_progress
+			&& !hba->async_resume) {
+		/* Init check for device descriptor sizes */
+		ufshcd_init_desc_sizes(hba);
 
-	ret = ufs_get_device_desc(hba, &card);
-	if (ret) {
-		dev_err(hba->dev, "%s: Failed getting device info. err = %d\n",
-			__func__, ret);
-		goto out;
+		ret = ufs_get_device_desc(hba, &card);
+		if (ret) {
+			dev_err(hba->dev, "%s: Failed getting device info. err = %d\n",
+				__func__, ret);
+			goto out;
+		}
+
+		ufs_fixup_device_setup(hba, &card);
 	}
 
-	ufs_fixup_device_setup(hba, &card);
 	ufshcd_tune_unipro_params(hba);
 
 	ret = ufshcd_set_vccq_rail_unused(hba,
@@ -7704,7 +7683,9 @@ static void ufshcd_async_scan(void *data, async_cookie_t cookie)
 
 	if (hba->async_resume) {
 		scsi_block_requests(hba->host);
+		dev_info(hba->dev, "UFS async resume started\n");
 		err = ufshcd_probe_hba(hba);
+		dev_info(hba->dev, "UFS async resume finished\n");
 		if (err)
 			goto err;
 
@@ -8531,6 +8512,7 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 	struct scsi_device *sdp;
 	unsigned long flags;
 	int ret;
+	int retries = 0;
 
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	sdp = hba->sdev_ufs_device;
@@ -8565,19 +8547,24 @@ static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 
 	cmd[4] = pwr_mode << 4;
 
-	/*
-	 * Current function would be generally called from the power management
-	 * callbacks hence set the RQF_PM flag so that it doesn't resume the
-	 * already suspended childs.
-	 */
-	ret = scsi_execute(sdp, cmd, DMA_NONE, NULL, 0, NULL, &sshdr,
-			UFS_START_STOP_TIMEOUT, 2, 0, RQF_PM, NULL);
-	if (ret) {
-		sdev_printk(KERN_WARNING, sdp,
-			    "START_STOP failed for power mode: %d, result %x\n",
-			    pwr_mode, ret);
-		if (driver_byte(ret) & DRIVER_SENSE)
-			scsi_print_sense_hdr(sdp, NULL, &sshdr);
+	for (retries = 0; retries < 3; retries++) {
+		/*
+		 * Current function would be generally called from the power management
+		 * callbacks hence set the RQF_PM flag so that it doesn't resume the
+		 * already suspended childs.
+		 */
+		ret = scsi_execute(sdp, cmd, DMA_NONE, NULL, 0, NULL, &sshdr,
+				UFS_START_STOP_TIMEOUT, 2, 0, RQF_PM, NULL);
+		if (ret) {
+			sdev_printk(KERN_WARNING, sdp,
+					"START_STOP failed for power mode: %d, result %x, retries : %d\n",
+					pwr_mode, ret, retries);
+			if (driver_byte(ret) & DRIVER_SENSE)
+				scsi_print_sense_hdr(sdp, NULL, &sshdr);
+		}
+		else {
+			break;
+		}
 	}
 
 	if (!ret)
@@ -8854,6 +8841,7 @@ disable_clks:
 
 	hba->clk_gating.state = CLKS_OFF;
 	trace_ufshcd_clk_gating(dev_name(hba->dev), hba->clk_gating.state);
+	mdelay(10);
 	/*
 	 * Call vendor specific suspend callback. As these callbacks may access
 	 * vendor specific host controller register space call them before the
@@ -9459,7 +9447,6 @@ SEC_UFS_DATA_ATTR(SEC_UFS_err_sum, "\"OPERR\":\"%d\",\"UICCMD\":\"%d\",\"UICERR\
 		err_info->query_count.Query_err);
 #endif
 
-UFS_DEV_ATTR(lt,  "%01x", hba->lifetime);
 UFS_DEV_ATTR(sense_err_count, "\"MEDIUM\":\"%d\",\"HWERR\":\"%d\"\n",
 						hba->host->medium_err_cnt, hba->host->hw_err_cnt); 
 UFS_DEV_ATTR(sense_err_logging, "\"LBA0\":\"%lx\",\"LBA1\":\"%lx\",\"LBA2\":\"%lx\""
@@ -9472,6 +9459,37 @@ UFS_DEV_ATTR(sense_err_logging, "\"LBA0\":\"%lx\",\"LBA1\":\"%lx\",\"LBA2\":\"%l
 		, hba->host->issue_LBA_list[6], hba->host->issue_LBA_list[7]
 		, hba->host->issue_LBA_list[8], hba->host->issue_LBA_list[9]
 		, hba->host->issue_region_map);
+
+static ssize_t ufs_lt_info_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct Scsi_Host *host = container_of(dev, struct Scsi_Host, shost_dev);
+	struct ufs_hba *hba = shost_priv(host);
+	u8 health_buf[QUERY_DESC_MAX_SIZE];
+	int err = 0;
+
+	if (!hba) {
+		printk("skipping ufs lt read\n");
+		hba->lifetime = 0;
+	} else if (hba->ufshcd_state == UFSHCD_STATE_OPERATIONAL) {
+		pm_runtime_get_sync(hba->dev);
+		err = ufshcd_read_health_desc(hba, health_buf,
+						hba->desc_size.hlth_desc);
+		pm_runtime_put(hba->dev);
+		if (err)
+			goto skip;
+		dev_info(hba->dev,"LT: 0x%02x \n", health_buf[3]<<4|health_buf[4]);
+
+		hba->lifetime = health_buf[HEALTH_DEVICE_DESC_PARAM_LIFETIMEA];
+	} else {
+		/* return previous LT value if not operational */
+		dev_info(hba->dev, "ufshcd_state : %d, old LT: %01x\n",
+					hba->ufshcd_state, hba->lifetime);
+	}
+
+skip:
+	return sprintf(buf, "%01x\n", hba->lifetime);
+}
+static DEVICE_ATTR(lt, 0444, ufs_lt_info_show, NULL);
 
 static ssize_t ufs_lc_info_show(struct device *dev, struct device_attribute *attr, char *buf)
 {

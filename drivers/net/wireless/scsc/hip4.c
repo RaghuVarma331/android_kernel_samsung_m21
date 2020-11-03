@@ -29,6 +29,9 @@
 
 #include "debug.h"
 
+/* Global spinlock to serialize napi context with hip4_deinit*/
+static DEFINE_SPINLOCK(in_napi_context);
+
 static bool hip4_system_wq;
 module_param(hip4_system_wq, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(hip4_system_wq, "Use system wq instead of named workqueue. (default: N)");
@@ -1368,22 +1371,32 @@ static int hip4_napi_poll(struct napi_struct *napi, int budget)
 	u8                      retry;
 	int work_done = 0;
 
+	spin_lock_bh(&in_napi_context);
 	if (!hip_priv || !hip_priv->hip) {
 		SLSI_ERR_NODEV("hip_priv or hip_priv->hip is Null\n");
+		spin_unlock_bh(&in_napi_context);
 		return 0;
 	}
 
 	hip = hip_priv->hip;
+	if(!hip || !hip->hip_priv) {
+                SLSI_ERR_NODEV("either hip or hip->hip_priv is Null\n");
+                spin_unlock_bh(&in_napi_context);
+                return 0;
+	}
+
 	ctrl = hip->hip_control;
 
 	if (!ctrl) {
 		SLSI_ERR_NODEV("hip->hip_control is Null\n");
+		spin_unlock_bh(&in_napi_context);
 		return 0;
 	}
 	sdev = container_of(hip, struct slsi_dev, hip4_inst);
 
 	if (!sdev || !sdev->service) {
 		SLSI_ERR_NODEV("sdev or sdev->service is Null\n");
+		spin_unlock_bh(&in_napi_context);
 		return 0;
 	}
 
@@ -1518,6 +1531,7 @@ end:
 	SLSI_DBG4(sdev, SLSI_RX, "work done:%d\n", work_done);
 	SCSC_HIP4_SAMPLER_INT_OUT_BH(hip->hip_priv->minor, 0);
 	spin_unlock_bh(&hip_priv->rx_lock);
+	spin_unlock_bh(&in_napi_context);
 	return work_done;
 }
 
@@ -2569,7 +2583,7 @@ int scsc_wifi_transmit_frame(struct slsi_hip4 *hip, bool ctrl_packet, struct sk_
 		SCSC_BIN_TAG_DEBUG(BIN_WIFI_DATA_TX, skb->data, skb_headlen(skb));
 	/* slsi_log_clients_log_signal_fast: skb is copied to all the log clients */
 	slsi_log_clients_log_signal_fast(sdev, &sdev->log_clients, skb, SLSI_LOG_DIRECTION_FROM_HOST);
-	slsi_kfree_skb(skb);
+	consume_skb(skb);
 	atomic_set(&hip->hip_priv->in_tx, 0);
 	spin_unlock_bh(&hip->hip_priv->tx_lock);
 	return 0;
@@ -2806,7 +2820,6 @@ void hip4_deinit(struct slsi_hip4 *hip)
 #ifdef CONFIG_SCSC_WLAN_RX_NAPI
 	u8 i;
 #endif
-
 	if (!sdev || !sdev->service)
 		return;
 
@@ -2883,7 +2896,10 @@ void hip4_deinit(struct slsi_hip4 *hip)
 		remove_proc_entry("driver/hip4", NULL);
 	}
 #endif
+
+	spin_lock_bh(&in_napi_context);
 	kfree(hip->hip_priv);
 
 	hip->hip_priv = NULL;
+	spin_unlock_bh(&in_napi_context);
 }

@@ -660,12 +660,16 @@ static policy_state sm5713_usbpd_policy_snk_transition_sink(
 		struct sm5713_policy_data *policy)
 {
 	struct sm5713_usbpd_data *pd_data = policy_to_usbpd(policy);
+	struct sm5713_phydrv_data *pdic_data = pd_data->phy_driver_data;
 	struct sm5713_usbpd_manager_data *manager = &pd_data->manager;
 
 	dev_info(pd_data->dev, "%s\n", __func__);
 	/* ST_PE_SNK_TRANSITION */
 	if (policy->last_state != policy->state) {
 		unsigned int msg;
+
+		if (!pdic_data->pd_support)
+			sm5713_short_state_check(pdic_data);
 
 		msg = sm5713_usbpd_wait_msg(pd_data,
 				MSG_PSRDY | MSG_GET_SNK_CAP, tPSTransition);

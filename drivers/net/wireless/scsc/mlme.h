@@ -151,7 +151,7 @@ int slsi_mlme_get(struct slsi_dev *sdev, struct net_device *dev, u8 *req, int re
 
 int slsi_mlme_add_vif(struct slsi_dev *sdev, struct net_device *dev, u8 *interface_address, u8 *device_address);
 void slsi_mlme_del_vif(struct slsi_dev *sdev, struct net_device *dev);
-#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+#if defined(CONFIG_SLSI_WLAN_STA_FWD_BEACON) && (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 100000)
 int slsi_mlme_set_forward_beacon(struct slsi_dev *sdev, struct net_device *dev, int action);
 #endif
 int slsi_mlme_set_channel(struct slsi_dev *sdev, struct net_device *dev, struct ieee80211_channel *chan, u16 duration, u16 interval, u16 count);
@@ -225,6 +225,7 @@ int slsi_mlme_add_info_elements(struct slsi_dev *sdev, struct net_device *dev,  
 int slsi_mlme_send_frame_mgmt(struct slsi_dev *sdev, struct net_device *dev, const u8 *frame, int frame_len, u16 data_desc, u16 msg_type, u16 host_tag, u16 freq, u32 dwell_time, u32 period);
 int slsi_mlme_send_frame_data(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb, u16 msg_type,
 			      u16 host_tag, u32 dwell_time, u32 period);
+int slsi_mlme_wifisharing_permitted_channels(struct slsi_dev *sdev, struct net_device *dev, u8 *permitted_channels);
 int slsi_mlme_reset_dwell_time(struct slsi_dev *sdev, struct net_device *dev);
 int slsi_mlme_set_packet_filter(struct slsi_dev *sdev, struct net_device *dev, int pkt_filter_len, u8 num_filters, struct slsi_mlme_pkt_filter_elem *pkt_filter_elems);
 void slsi_mlme_connect_resp(struct slsi_dev *sdev, struct net_device *dev);
@@ -263,8 +264,7 @@ int slsi_mlme_ndp_terminate(struct slsi_dev *sdev, struct net_device *dev, u16 n
 #endif
 #endif
 
-int slsi_mlme_set_ext_capab(struct slsi_dev *sdev, struct net_device *dev, struct slsi_mib_value *mib_val);
-int slsi_mlme_set_hs2_ext_cap(struct slsi_dev *sdev, struct net_device *dev, const u8 *ies, int ie_len);
+int slsi_mlme_set_ext_capab(struct slsi_dev *sdev, struct net_device *dev, u8 *data, int datalength);
 int slsi_mlme_reassociate(struct slsi_dev *sdev, struct net_device *dev);
 void slsi_mlme_reassociate_resp(struct slsi_dev *sdev, struct net_device *dev);
 int slsi_modify_ies(struct net_device *dev, u8 eid, u8 *ies, int ies_len, u8 ie_index, u8 ie_value);

@@ -32,11 +32,13 @@ extern struct class *sec_class;
 
 static void get_chip_name(void *device_data);
 static void fw_update(void *device_data);
+static void set_cover_type(void *device_data);
 static void not_support_cmd(void *device_data);
 
 static struct sec_cmd sec_cmds[] = {
 	{SEC_CMD("get_chip_name", get_chip_name),},
 	{SEC_CMD("fw_update", fw_update),},
+	{SEC_CMD("set_cover_type", set_cover_type),},
 	{SEC_CMD("not_support_cmd", not_support_cmd),},
 };
 
@@ -135,7 +137,11 @@ static ssize_t epen_firmware_update_store(struct device *dev,
 	switch (*buf) {
 	case 'i':
 	case 'I':
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		fw_update_way = FW_IN_SDCARD;
+#else
+		fw_update_way = FW_IN_SDCARD_SIGNED;
+#endif
 		break;
 	case 'k':
 	case 'K':
@@ -1496,7 +1502,7 @@ enum {
 	WACOM_BUILT_IN = 0,
 	WACOM_UMS,
 	WACOM_NONE,
-	WACOM_FFU,
+	WACOM_SPU,
 };
 
 /* Factory cmd for firmware update
@@ -1522,7 +1528,7 @@ static void fw_update(void *device_data)
 		goto err_out;
 	}
 
-	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > WACOM_FFU) {
+	if (sec->cmd_param[0] < 0 || sec->cmd_param[0] > WACOM_SPU) {
 		input_err(true, &wac_i2c->client->dev, "%s: [ERROR] parm error![%d]\n",
 						__func__, sec->cmd_param[0]);
 		goto err_out;
@@ -1533,10 +1539,14 @@ static void fw_update(void *device_data)
 		ret = wacom_fw_update(wac_i2c, FW_BUILT_IN, true);
 		break;
 	case WACOM_UMS:
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		ret = wacom_fw_update(wac_i2c, FW_IN_SDCARD, true);
+#else
+		ret = wacom_fw_update(wac_i2c, FW_IN_SDCARD_SIGNED, true);
+#endif
 		break;
-	case WACOM_FFU:
-		ret = wacom_fw_update(wac_i2c, FW_FFU, true);
+	case WACOM_SPU:
+		ret = wacom_fw_update(wac_i2c, FW_SPU, true);
 		break;
 	default:
 		input_err(true, &wac_i2c->client->dev, "%s: Not support command[%d]\n",
@@ -1566,6 +1576,56 @@ err_out:
 	sec->cmd_state = SEC_CMD_STATUS_FAIL;
 	return;
 
+}
+
+static void set_cover_type(void *device_data)
+{
+	struct sec_cmd_data *sec = (struct sec_cmd_data *)device_data;
+	struct wacom_i2c *wac_i2c = container_of(sec, struct wacom_i2c, sec);
+	char buff[SEC_CMD_STR_LEN] = { 0 };
+
+	sec_cmd_set_default_result(sec);
+
+	switch (sec->cmd_param[0]) {
+	case 0:
+		wac_i2c->cover = false;
+		break;
+	case 1:
+		wac_i2c->cover = true;
+		break;
+	default:
+		input_err(true, &wac_i2c->client->dev, "%s: Not support command[%d]\n",
+				__func__, sec->cmd_param[0]);
+		goto err_out;
+	}
+
+	if (!wac_i2c->power_enable) {
+		input_err(true, &wac_i2c->client->dev, "%s: [ERROR] Wacom is stopped\n", __func__);
+		goto err_out;
+	}
+
+	input_info(true, &wac_i2c->client->dev, "%s: %d\n", __func__, sec->cmd_param[0]);
+
+	wacom_swap_compensation(wac_i2c, wac_i2c->cover);
+
+	snprintf(buff, sizeof(buff), "OK\n");
+	sec->cmd_state = SEC_CMD_STATUS_OK;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+
+	input_info(true, &wac_i2c->client->dev, "%s: Done\n", __func__);
+
+	return;
+
+err_out:
+	snprintf(buff, sizeof(buff), "NG");
+	sec->cmd_state = SEC_CMD_STATUS_FAIL;
+	sec_cmd_set_cmd_result(sec, buff, strnlen(buff, sizeof(buff)));
+	sec_cmd_set_cmd_exit(sec);
+
+	input_info(true, &wac_i2c->client->dev, "%s: Fail\n", __func__);
+
+	return;
 }
 
 static void not_support_cmd(void *device_data)

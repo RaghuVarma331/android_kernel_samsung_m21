@@ -111,7 +111,6 @@ struct zram_wb_entry {
 	unsigned int offset;
 	unsigned int size;
 };
-static int zram_wbd(void *);
 
 enum zram_wb_modes {
 	COMP_STORE,
@@ -157,14 +156,10 @@ struct zram {
 	struct dentry *debugfs_dir;
 #endif
 #ifdef CONFIG_ZRAM_COMP_WRITEBACK
-	struct task_struct *wbd;
-	wait_queue_head_t wbd_wait;
-	struct page *wb_page;
+	wait_queue_head_t io_wait;
 	int *wb_table;
 	spinlock_t wb_table_lock;
-	atomic_t nr_wb_req;
-	bool wbd_running;
-	bool wbd_io_complete;
+	bool io_complete;
 #endif
 };
 #endif

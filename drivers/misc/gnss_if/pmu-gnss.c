@@ -262,7 +262,7 @@ static int gnss_pmu_hold_reset(void)
 
 #ifdef CONFIG_GNSS_PMUCAL
 	cal_gnss_reset_assert();
-	mdelay(50);
+	msleep(50);
 #else
 	/* set sys_pwr_cfg registers */
 	exynos_sys_powerdown_conf_gnss();

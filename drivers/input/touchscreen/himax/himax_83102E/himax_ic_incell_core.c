@@ -684,6 +684,8 @@ static uint32_t himax_mcu_check_CRC(uint8_t *start_addr, int reload_length)
 	uint8_t tmp_data[DATA_LEN_4];
 	int cnt = 0, ret = 0;
 	int length = reload_length / DATA_LEN_4;
+	uint8_t dbg_addr[4];
+	uint8_t dbg_data[4];
 
 	ret = g_core_fp.fp_register_write(pfw_op->addr_reload_addr_from, DATA_LEN_4, start_addr, 0);
 	if (ret < NO_ERR) {
@@ -705,6 +707,10 @@ static uint32_t himax_mcu_check_CRC(uint8_t *start_addr, int reload_length)
 			E("%s: i2c access fail!\n", __func__);
 			return HW_CRC_FAIL;
 		}
+
+		himax_in_parse_assign_cmd(fw_addr_flag_reset_event, dbg_addr, sizeof(dbg_addr));
+		g_core_fp.fp_register_read(dbg_addr, 4, dbg_data, false);
+		I("%s: 0x900000E4 = %02X%02X%02X%02X\n", __func__, dbg_data[0], dbg_data[1], dbg_data[2], dbg_data[3]);
 
 		if ((tmp_data[0] & 0x01) != 0x01) {
 			ret = g_core_fp.fp_register_read(pfw_op->addr_reload_crc32_result, DATA_LEN_4, tmp_data, 0);
@@ -1854,7 +1860,8 @@ static int himax_mcu_fts_ctpm_fw_upgrade_with_sys_fs_128k(unsigned char *fw, int
 	g_core_fp.fp_block_erase(0x00, FW_SIZE_128k);
 	g_core_fp.fp_flash_programming(fw, FW_SIZE_128k);
 
-	if (g_core_fp.fp_check_CRC(pfw_op->addr_program_reload_from, FW_SIZE_128k) == 0)
+	if ((g_core_fp.fp_check_CRC(pfw_op->addr_program_reload_from, FW_SIZE_128k) == 0) 
+		&& (g_core_fp.fp_flash_lastdata_check(FW_SIZE_128k, fw, len) == 0))
 		burnFW_success = 1;
 
 	/*RawOut select initial*/
@@ -1893,7 +1900,7 @@ static void himax_mcu_flash_dump_func(uint8_t local_flash_command, int Flash_Siz
 	g_core_fp.fp_sense_on(0x01);
 }
 
-static bool himax_mcu_flash_lastdata_check(uint32_t size)
+static bool himax_mcu_flash_lastdata_check(uint32_t size, unsigned char *fw, int len)
 {
 	uint8_t tmp_addr[4];
 	uint32_t start_addr = 0xFF80; /* 64K - 0x80, which is the address of the last 128bytes in 64K, default value*/
@@ -1919,6 +1926,13 @@ static bool himax_mcu_flash_lastdata_check(uint32_t size)
 	} else if ((flash_tmp_buffer[flash_page_len-4] == 0xFF) && (flash_tmp_buffer[flash_page_len-3] == 0xFF) && (flash_tmp_buffer[flash_page_len-2] == 0xFF) && (flash_tmp_buffer[flash_page_len-1] == 0xFF)) {
 		I("Fail, Last four Bytes are flash_buffer[FFFC]=0x%2X,flash_buffer[FFFD]=0x%2X,flash_buffer[FFFE]=0x%2X,flash_buffer[FFFF]=0x%2X\n",
 		flash_tmp_buffer[flash_page_len-4], flash_tmp_buffer[flash_page_len-3], flash_tmp_buffer[flash_page_len-2], flash_tmp_buffer[flash_page_len-1]);
+		goto FAIL;
+	} else if (len > 0 && ((flash_tmp_buffer[flash_page_len-4] != fw[len-4]) 
+			|| (flash_tmp_buffer[flash_page_len-3] != fw[len-3]) 
+			|| (flash_tmp_buffer[flash_page_len-2] != fw[len-2]) 
+			|| (flash_tmp_buffer[flash_page_len-1] != fw[len-1]))) {
+		I("Fail, flash last 4 bytes=0x%02X%02X%02X%02X\n", flash_tmp_buffer[flash_page_len-4], flash_tmp_buffer[flash_page_len-3], flash_tmp_buffer[flash_page_len-2], flash_tmp_buffer[flash_page_len-1]);
+		I("Fail, FW last 4 bytes=0x%02X%02X%02X%02X\n", fw[len-4], fw[len-3], fw[len-2], fw[len-1]);
 		goto FAIL;
 	} else {
 		I("flash_buffer[FFFC]=0x%2X,flash_buffer[FFFD]=0x%2X,flash_buffer[FFFE]=0x%2X,flash_buffer[FFFF]=0x%2X\n",

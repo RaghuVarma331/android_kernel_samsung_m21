@@ -6,6 +6,8 @@
 #ifndef __SLSI_NL80211_VENDOR_NAN_H_
 #define __SLSI_NL80211_VENDOR_NAN_H_
 
+#define SLSI_NAN_VIF_TYPE_NDP                       0x00FF
+
 #define SLSI_NAN_TLV_TAG_CONFIGURATION             0x0101
 #define SLSI_NAN_TLV_TAG_2G4_BAND_SPECIFIC_CONFIG  0x0102
 #define SLSI_NAN_TLV_TAG_5G_BAND_SPECIFIC_CONFIG   0x0103
@@ -23,9 +25,11 @@
 #define SLSI_NAN_TLV_TAG_APP_INFO                  0x010f
 #define SLSI_NAN_TLV_TAG_RANGING                   0x0110
 #define SLSI_NAN_TLV_WFA_IPV6_LOCAL_LINK           0x0000
+#define SLSI_NAN_TLV_WFA_SERVICE_INFO              0x0001
+
 
 #define SLSI_NAN_MAX_SERVICE_ID 16
-
+#define SLSI_NAN_MAX_HOST_FOLLOWUP_REQ 20
 #define SLSI_NAN_MAX_NDP_INSTANCES 8
 #define SLSI_NAN_DATA_IFINDEX_START 5
 
@@ -54,7 +58,8 @@ enum SLSI_NAN_REPLY_ATTRIBUTES {
 	NAN_REPLY_ATTR_CAP_NDP_SECURITY_SUPPORTED,
 	NAN_REPLY_ATTR_CAP_MAX_SDEA_SERVICE_SPECIFIC_INFO_LEN,
 	NAN_REPLY_ATTR_CAP_MAX_SUBSCRIBE_ADDRESS,
-	NAN_REPLY_ATTR_CAP_NDPE_ATTR_SUPPORTED
+	NAN_REPLY_ATTR_CAP_NDPE_ATTR_SUPPORTED,
+	NAN_REPLY_ATTR_HAL_TRANSACTION_ID
 };
 
 enum SLSI_NAN_REQ_ATTRIBUTES {
@@ -200,7 +205,8 @@ enum SLSI_NAN_REQ_ATTRIBUTES {
 	NAN_REQ_ATTR_SERVICE_NAME_LEN,
 	NAN_REQ_ATTR_SERVICE_NAME = 140,
 	NAN_REQ_ATTR_NDP_RESPONSE_CODE,
-	NAN_REQ_ATTR_USE_NDPE_ATTR
+	NAN_REQ_ATTR_USE_NDPE_ATTR,
+	NAN_REQ_ATTR_HAL_TRANSACTION_ID
 };
 
 enum SLSI_NAN_RESP_ATTRIBUTES {
@@ -295,7 +301,8 @@ enum SLSI_NAN_EVT_ATTRIBUTES {
 	NAN_EVT_ATTR_APP_INFO,
 	NAN_EVT_ATTR_CHANNEL,
 	NAN_EVT_ATTR_CHANNEL_BW,
-	NAN_EVT_ATTR_CHANNEL_NSS
+	NAN_EVT_ATTR_CHANNEL_NSS,
+	NAN_EVT_ATTR_HAL_TRANSACTION_ID
 };
 
 #define SLSI_FAPI_NAN_CONFIG_PARAM_SID_BEACON 0X0003
@@ -569,6 +576,7 @@ struct slsi_nan_security_info {
 };
 
 struct slsi_hal_nan_enable_req {
+	u16 transaction_id;
 	/* Mandatory parameters below */
 	u8 master_pref;
 	u16 cluster_low;
@@ -641,6 +649,7 @@ struct slsi_hal_nan_enable_req {
 };
 
 struct slsi_hal_nan_publish_req {
+	u16 transaction_id;
 	/* id  0 means new publish, any other id is existing publish */
 	u16 publish_id;
 	/* how many seconds to run for. 0 means forever until canceled */
@@ -700,6 +709,7 @@ struct slsi_hal_nan_publish_req {
 };
 
 struct slsi_hal_nan_subscribe_req {
+	u16 transaction_id;
 	/* id 0 means new subscribe, non zero is existing subscribe */
 	u16 subscribe_id;
 	/* how many seconds to run for. 0 means forever until canceled */
@@ -799,6 +809,7 @@ struct slsi_hal_nan_subscribe_req {
 };
 
 struct slsi_hal_nan_transmit_followup_req {
+	u16 transaction_id;
 	/* Publish or Subscribe Id of an earlier Publish/Subscribe */
 	u16 publish_subscribe_id;
 
@@ -826,6 +837,7 @@ struct slsi_hal_nan_transmit_followup_req {
 };
 
 struct slsi_hal_nan_config_req {
+	u16 transaction_id;
 	u8 config_sid_beacon;
 	u8 sid_beacon;
 	u8 config_rssi_proximity;
@@ -921,8 +933,6 @@ struct slsi_hal_nan_config_req {
 	/* channel frequency in MHz to enable Nan on */
 	u8 config_24g_channel;
 	u32 channel_24g_val;
-
-
 };
 
 struct slsi_hal_nan_data_path_cfg {
@@ -936,6 +946,7 @@ struct slsi_hal_nan_data_path_app_info {
 };
 
 struct slsi_hal_nan_data_path_initiator_req {
+	u16 transaction_id;
 	u32 requestor_instance_id;
 	u8 channel_request_type;
 	u32 channel;
@@ -949,6 +960,7 @@ struct slsi_hal_nan_data_path_initiator_req {
 };
 
 struct slsi_hal_nan_data_path_indication_response {
+	u16 transaction_id;
 	u32 ndp_instance_id;
 	char ndp_iface[IFNAMSIZ + 1];
 	struct slsi_hal_nan_data_path_cfg ndp_cfg;
@@ -960,6 +972,7 @@ struct slsi_hal_nan_data_path_indication_response {
 };
 
 struct slsi_hal_nan_data_end {
+	u16 transaction_id;
 	u8 num_ndp_instances;
 	u32 ndp_instance_id[SLSI_NAN_MAX_NDP_INSTANCES];
 };
@@ -977,6 +990,14 @@ struct slsi_hal_nan_capabilities {
 	u32 max_ndi_interfaces;
 	u32 max_ndp_sessions;
 	u32 max_app_info_len;
+	u32 max_queued_transmit_followup_msgs;
+	u32 ndp_supported_bands;
+	u32 cipher_suites_supported;
+	u32 max_scid_len;
+	bool is_ndp_security_supported;
+	u32 max_sdea_service_specific_info_len;
+	u32 max_subscribe_address;
+	u32 ndpe_attr_supported;
 };
 
 struct slsi_hal_nan_followup_ind {
@@ -1069,11 +1090,13 @@ int slsi_nan_ndp_respond(struct wiphy *wiphy, struct wireless_dev *wdev, const v
 int slsi_nan_ndp_end(struct wiphy *wiphy, struct wireless_dev *wdev, const void *data, int len);
 int slsi_nan_ndp_new_entry(struct slsi_dev *sdev, struct net_device *dev, u32 ndp_id,
 			   u16 ndl_vif_id, u8 *local_ndi, u8 *peer_nmi);
-void slsi_nan_ndp_del_entry(struct slsi_dev *sdev, struct net_device *dev, u32 ndp_id);
+void slsi_nan_ndp_del_entry(struct slsi_dev *sdev, struct net_device *dev, u32 ndp_id, const bool ndl_vif_locked);
 void slsi_nan_ndp_setup_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb, bool is_req_ind);
 void slsi_nan_ndp_requested_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb);
-void slsi_nan_ndp_termination_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb,
-				  bool is_terminated_ind);
+void slsi_nan_ndp_termination_ind(struct slsi_dev *sdev, struct net_device *dev, struct sk_buff *skb);
 u32 slsi_nan_get_ndp_from_ndl_local_ndi(struct net_device *dev, u16 ndl_vif_id, u8 *local_ndi);
 void slsi_nan_del_peer(struct slsi_dev *sdev, struct net_device *dev, u8 *local_ndi, u16 ndp_id);
+void slsi_nan_ndp_termination_handler(struct slsi_dev *sdev, struct net_device *dev, u16 ndp_id, u16 ndl_vif, u8 *ndi);
+int slsi_nan_push_followup_ids(struct slsi_dev *sdev, struct net_device *dev, u16 match_id, u16 trans_id);
+void slsi_nan_pop_followup_ids(struct slsi_dev *sdev, struct net_device *dev, u16 match_id);
 #endif

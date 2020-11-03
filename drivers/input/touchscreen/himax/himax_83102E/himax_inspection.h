@@ -37,6 +37,16 @@
 	extern u8 HX_ESD_RESET_ACTIVATE;
 #endif
 
+/* Firmware update error code */
+enum fw_update_errno {
+	FW_ERR_FILE_READ = -4,
+	FW_ERR_FILE_OPEN = -3,
+	FW_ERR_FILE_SIGN = -2,
+	FW_ERR_DOWNLOAD = -1,
+	FW_ERR_NONE = 0,
+	FW_ERR_UPTODATE = 1,
+};
+
 #define BS_RAWDATA	10
 #define BS_NOISE	100
 #define BS_OPENSHORT	0
@@ -120,6 +130,11 @@
 #define ACSII_SPACE	(0x20)
 /* INSOECTION Setting */
 
+enum AP_MODE {
+	GAME_MODE,
+	NOTE_MODE
+};
+
 void himax_inspection_init(void);
 extern int *g_test_item_flag;
 extern int HX_CRITERIA_ITEM;
@@ -140,6 +155,15 @@ extern char *g_himax_inspection_mode[];
 #define addr_neg_noise_sup 0x10007FD8
 #define data_neg_noise 0x7F0C0000
 #define addr_ctrl_mpap_ovl 0x100073EC
+
+/*Compensation Zone register*/
+#define addr_rotative_mode 0x10007F3C
+#define data_portrait 0xA55AA55A
+#define data_landscape 0xA11AA11A
+#define addr_grip_zone 0x10007268
+#define addr_reject_zone 0x1000726C
+#define addr_reject_zone_boud 0x10007270
+#define addr_except_zone 0x10007274
 
 /*Need to map *g_himax_inspection_mode[]*/
 enum THP_INSPECTION_ENUM {

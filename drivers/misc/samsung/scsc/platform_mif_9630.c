@@ -32,11 +32,13 @@
 #include "mif_reg_S5E9630.h"
 #include "platform_mif_module.h"
 #include "mxman.h"
-#ifdef CONFIG_ARCH_EXYNOS
+#include "miframman.h"
+#if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_EXYNOS9)
 #include <linux/soc/samsung/exynos-soc.h>
 #endif
 #ifdef CONFIG_SOC_EXYNOS9630
 #include <linux/mfd/samsung/s2mpu11-regulator.h>
+#include "../../../../drivers/soc/samsung/cal-if/acpm_dvfs.h"
 #endif
 
 #ifdef CONFIG_SCSC_SMAPPER
@@ -73,9 +75,11 @@ static bool enable_platform_mif_arm_reset = true;
 module_param(enable_platform_mif_arm_reset, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(enable_platform_mif_arm_reset, "Enables WIFIBT ARM cores reset");
 
-static bool disable_apm_setup;
+static bool disable_apm_setup = true;
 module_param(disable_apm_setup, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(disable_apm_setup, "Disable host APM setup");
+
+static bool init_done;
 
 #ifdef CONFIG_SCSC_QOS
 struct qos_table {
@@ -130,6 +134,7 @@ struct platform_mif {
 	enum wlbt_boot_state {
 		WLBT_BOOT_IN_RESET = 0,
 		WLBT_BOOT_WAIT_CFG_REQ,
+		WLBT_BOOT_ACK_CFG_REQ,
 		WLBT_BOOT_CFG_DONE,
 		WLBT_BOOT_CFG_ERROR
 	} boot_state;
@@ -593,8 +598,14 @@ irqreturn_t platform_wdog_isr(int irq, void *data)
 
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "INT received\n");
 	if (platform->reset_request_handler != platform_mif_irq_reset_request_default_handler) {
-		disable_irq_nosync(platform->wlbt_irq[PLATFORM_MIF_WDOG].irq_num);
-		platform->reset_request_handler(irq, platform->irq_reset_request_dev);
+		if (platform->boot_state == WLBT_BOOT_WAIT_CFG_REQ) {
+			/* Spurious interrupt from the SOC during CFG_REQ phase, just consume it */
+			SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "Spurious wdog irq during cfg_req phase\n");
+			return IRQ_HANDLED;
+		} else {
+			disable_irq_nosync(platform->wlbt_irq[PLATFORM_MIF_WDOG].irq_num);
+			platform->reset_request_handler(irq, platform->irq_reset_request_dev);
+		}
 	} else {
 		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "WDOG Interrupt reset_request_handler not registered\n");
 		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "Disabling unhandled WDOG IRQ.\n");
@@ -825,7 +836,7 @@ irqreturn_t platform_cfg_req_isr(int irq, void *data)
 
 	while (ka_patch_addr < (ka_patch + ARRAY_SIZE(ka_patch))) {
 		CHECK(regmap_write(platform->boot_cfg, ka_addr, *ka_patch_addr));
-		ka_addr += sizeof(ka_patch[0]);
+		ka_addr += (unsigned int)sizeof(ka_patch[0]);
 		ka_patch_addr++;
 	}
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "KA patch done\n");
@@ -833,6 +844,11 @@ irqreturn_t platform_cfg_req_isr(int irq, void *data)
 	/* Notify PMU of configuration done */
 	CHECK(regmap_write(platform->boot_cfg, 0x0, 0x0));
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "BOOT config done\n");
+
+	/* WLBT FW could panic as soon as CFG_ACK is set, so change state.
+	 * This allows early FW panic to be dumped.
+	 */
+	platform->boot_state = WLBT_BOOT_ACK_CFG_REQ;
 
 	/* BOOT_CFG_ACK */
 	CHECK(regmap_write(platform->boot_cfg, 0x4, 0x1));
@@ -858,9 +874,6 @@ irqreturn_t platform_cfg_req_isr(int irq, void *data)
 
 	/* Signal triggering function that the IRQ arrived and CFG was done */
 	complete(&platform->cfg_ack);
-
-	/* Re-enable IRQ here to allow spurious interrupt to be tracked */
-	enable_irq(platform->wlbt_irq[PLATFORM_MIF_CFG_REQ].irq_num);
 
 	/* as per wlbt_if_S5E9630.c - end */
 	return IRQ_HANDLED;
@@ -974,20 +987,14 @@ static void wlbt_regdump(struct platform_mif *platform)
 {
 	u32 val = 0;
 
-	regmap_read(platform->pmureg, WLBT_CTRL_S, &val);
-	SCSC_TAG_INFO(PLAT_MIF, "WLBT_CTRL_S 0x%x\n", val);
+	regmap_read(platform->pmureg, WLBT_STAT, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_STAT 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_DEBUG, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_DEBUG 0x%x\n", val);
 
 	regmap_read(platform->pmureg, WLBT_CONFIGURATION, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_CONFIGURATION 0x%x\n", val);
-
-	regmap_read(platform->pmureg, WLBT_CTRL_NS, &val);
-	SCSC_TAG_INFO(PLAT_MIF, "WLBT_CTRL_NS 0x%x\n", val);
-
-	regmap_read(platform->pmureg, WLBT_IN, &val);
-	SCSC_TAG_INFO(PLAT_MIF, "WLBT_IN 0x%x\n", val);
-
-	regmap_read(platform->pmureg, WLBT_OUT, &val);
-	SCSC_TAG_INFO(PLAT_MIF, "WLBT_OUT 0x%x\n", val);
 
 	regmap_read(platform->pmureg, WLBT_STATUS, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_STATUS 0x%x\n", val);
@@ -995,11 +1002,32 @@ static void wlbt_regdump(struct platform_mif *platform)
 	regmap_read(platform->pmureg, WLBT_STATES, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_STATES 0x%x\n", val);
 
-	regmap_read(platform->pmureg, WLBT_DEBUG, &val);
-	SCSC_TAG_INFO(PLAT_MIF, "WLBT_DEBUG 0x%x\n", val);
-
 	regmap_read(platform->pmureg, WLBT_OPTION, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_OPTION 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_CTRL_NS, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_CTRL_NS 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_CTRL_S, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_CTRL_S 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_OUT, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_OUT 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_IN, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_IN 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_INT_IN, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_INT_IN 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_INT_EN, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_INT_EN 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_INT_TYPE, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_INT_TYPE 0x%x\n", val);
+
+	regmap_read(platform->pmureg, WLBT_INT_DIR, &val);
+	SCSC_TAG_INFO(PLAT_MIF, "WLBT_INT_DIR 0x%x\n", val);
 
 	regmap_read(platform->pmureg, SYSTEM_OUT, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "SYSTEM_OUT 0x%x\n", val);
@@ -1060,6 +1088,32 @@ static int platform_mif_start(struct scsc_mif_abs *interface, bool start)
 	return 0;
 }
 
+/* Request to APM to reconfigure supplies for WLBT on.
+ *
+ * This is to allow the APM to reduce some voltages for other subsystems when WLBT
+ * is not being used.
+ */
+static int apm_ipc_wlbt(int on)
+{
+#ifdef NOTI_SUBSYSTEM_PWR
+	int r;
+	unsigned int power = (on ? SUBSYSTEM_PWR_ON : SUBSYSTEM_PWR_OFF);
+
+	SCSC_TAG_INFO(PLAT_MIF, "%d\n", on);
+
+	/* Inform APM that we're starting WLBT, and to switch BUCK4S voltage accordingly */
+	r = exynos_acpm_noti_subsystem_pwr(SUBSYSTEM_ID_WLBT, power);
+	if (r != power) {
+		SCSC_TAG_ERR(PLAT_MIF,
+			     "APM IPC exynos_acpm_noti_subsystem_pwr(%d) failed %d, WLBT will not power on\n",
+			     on, r);
+		return -EIO;
+	}
+#endif
+	(void)on;
+	return 0;
+}
+
 static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 {
 	struct platform_mif *platform = platform_mif_from_mif_abs(interface);
@@ -1067,6 +1121,11 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 	u32		val = 0;
 	u32		v = 0;
 	unsigned long	timeout;
+
+	/* Inform APM that we're starting WLBT, and to switch BUCK4S voltage accordingly */
+	ret = apm_ipc_wlbt(1);
+	if (ret)
+		return ret;
 
 	/* We're now ready for the IRQ */
 	platform->boot_state = WLBT_BOOT_WAIT_CFG_REQ;
@@ -1094,17 +1153,20 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 	 */
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev, "init\n");
 
-	/* WLBT_CTRL_S[WLBT_START] = 1 enable */
-	ret = regmap_update_bits(platform->pmureg, WLBT_CTRL_S,
-			WLBT_START, WLBT_START);
-	if (ret < 0) {
-		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
-				"Failed to update WLBT_CTRL_S[WLBT_START]: %d\n", ret);
-		return ret;
+	if (!init_done) {
+		/* WLBT_CTRL_S[WLBT_START] = 1 enable */
+		ret = regmap_update_bits(platform->pmureg, WLBT_CTRL_S,
+				WLBT_START, WLBT_START);
+		if (ret < 0) {
+			SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
+					"Failed to update WLBT_CTRL_S[WLBT_START]: %d\n", ret);
+			goto done;
+		}
+		regmap_read(platform->pmureg, WLBT_CTRL_S, &val);
+		SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
+			"updated successfully WLBT_CTRL_S[WLBT_START]: 0x%x\n", val);
+		init_done = true;
 	}
-	regmap_read(platform->pmureg, WLBT_CTRL_S, &val);
-	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
-		"updated successfully WLBT_CTRL_S[WLBT_START]: 0x%x\n", val);
 
 	/* WLBT_OPTION[WLBT_OPTION_DATA] = 1 Power On */
 	ret = regmap_update_bits(platform->pmureg, WLBT_OPTION,
@@ -1112,7 +1174,7 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 	if (ret < 0) {
 		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
 			"Failed to update WLBT_OPTION[WLBT_OPTION_DATA]: %d\n", ret);
-		return ret;
+		goto done;
 	}
 	regmap_read(platform->pmureg, WLBT_OPTION, &val);
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
@@ -1124,23 +1186,11 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 	if (ret < 0) {
 		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
 			"Failed to update SYSTEM_OUT[PWRRGTON_CON]: %d\n", ret);
-		return ret;
+		goto done;
 	}
 	regmap_read(platform->pmureg, SYSTEM_OUT, &val);
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
 		"updated successfully SYSTEM_OUT[PWRRGTON_CON]: 0x%x\n", val);
-
-	/* WLBT_CONFIGURATION[LOCAL_PWR_CFG] = 1 Power On */
-	ret = regmap_update_bits(platform->pmureg, WLBT_CONFIGURATION,
-			LOCAL_PWR_CFG, LOCAL_PWR_CFG);
-	if (ret < 0) {
-		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
-			"Failed to update WLBT_CONFIGURATION[LOCAL_PWR_CFG]: %d\n", ret);
-		return ret;
-	}
-	regmap_read(platform->pmureg, WLBT_CONFIGURATION, &val);
-	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
-		"updated successfully WLBT_CONFIGURATION[PWRRGTON_CON]: 0x%x\n", val);
 
 	/* VGPIO_TX_MONITOR[VGPIO_TX_MON_BIT29] = 0x1 */
 	timeout = jiffies + msecs_to_jiffies(500);
@@ -1148,7 +1198,7 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 		regmap_read(platform->i3c_apm_pmic, VGPIO_TX_MONITOR, &val);
 		val &= (u32)VGPIO_TX_MON_BIT29;
 		if (val) {
-			SCSC_TAG_INFO(PLAT_MIF, "VGPIO_TX_MONITOR 0x%x\n", val);
+			SCSC_TAG_INFO(PLAT_MIF, "read VGPIO_TX_MONITOR 0x%x\n", val);
 			break;
 		}
 	} while (time_before(jiffies, timeout));
@@ -1158,6 +1208,20 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 		SCSC_TAG_INFO(PLAT_MIF, "timeout waiting for VGPIO_TX_MONITOR time-out: "
 					"VGPIO_TX_MONITOR 0x%x\n", val);
 	}
+
+	udelay(1000);
+
+	/* WLBT_CONFIGURATION[LOCAL_PWR_CFG] = 1 Power On */
+	ret = regmap_update_bits(platform->pmureg, WLBT_CONFIGURATION,
+			LOCAL_PWR_CFG, LOCAL_PWR_CFG);
+	if (ret < 0) {
+		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
+			"Failed to update WLBT_CONFIGURATION[LOCAL_PWR_CFG]: %d\n", ret);
+		goto done;
+	}
+	regmap_read(platform->pmureg, WLBT_CONFIGURATION, &val);
+	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
+		"updated successfully WLBT_CONFIGURATION[PWRRGTON_CON]: 0x%x\n", val);
 
 	/* wait for power up complete WLBT_STATUS[WLBT_STATUS_BIT0] = 1 for Power On */
 	timeout = jiffies + msecs_to_jiffies(500);
@@ -1222,8 +1286,10 @@ static int platform_mif_pmu_reset_release(struct scsc_mif_abs *interface)
 	enable_irq(platform->wlbt_irq[PLATFORM_MIF_CFG_REQ].irq_num);
 
 	ret = platform_mif_start(interface, true);
+done:
+	/* On error, reconfigure supplies for WLBT off */
 	if (ret)
-		return ret;
+		apm_ipc_wlbt(0);
 
 	return ret;
 }
@@ -1263,7 +1329,7 @@ static int platform_mif_pmu_reset_assert(struct scsc_mif_abs *interface)
 	if (ret < 0) {
 		SCSC_TAG_ERR_DEV(PLAT_MIF, platform->dev,
 			"Failed to update WLBT_CONFIGURATION[LOCAL_PWR_CFG]: %d\n", ret);
-		return ret;
+		goto done;
 	}
 	regmap_read(platform->pmureg, WLBT_CONFIGURATION, &val);
 	SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
@@ -1281,7 +1347,8 @@ static int platform_mif_pmu_reset_assert(struct scsc_mif_abs *interface)
 			regmap_read(platform->pmureg, WLBT_STATES, &val);
 			SCSC_TAG_INFO(PLAT_MIF, "Power down complete: WLBT_STATES 0x%x\n", val);
 
-			return 0; /* OK - return */
+			ret = 0; /* OK - return */
+			goto done;
 		}
 	} while (time_before(jiffies, timeout));
 
@@ -1294,7 +1361,13 @@ static int platform_mif_pmu_reset_assert(struct scsc_mif_abs *interface)
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_DEBUG 0x%x\n", val);
 	regmap_read(platform->pmureg, WLBT_STATES, &val);
 	SCSC_TAG_INFO(PLAT_MIF, "WLBT_STATES 0x%x\n", val);
-	return -ETIME;
+	ret = -ETIME;
+done:
+	/* Tell APM that WLBT is off. If reset failed, safer to indicate that WLBT is powered */
+	if (ret == 0)
+		apm_ipc_wlbt(0);
+
+	return ret;
 }
 
 /* reset=0 - release from reset */
@@ -1308,7 +1381,7 @@ static int platform_mif_reset(struct scsc_mif_abs *interface, bool reset)
 
 	if (enable_platform_mif_arm_reset || !reset) {
 		if (!reset) { /* Release from reset */
-#ifdef CONFIG_ARCH_EXYNOS
+#if defined(CONFIG_ARCH_EXYNOS) || defined(CONFIG_ARCH_EXYNOS9)
 			SCSC_TAG_INFO_DEV(PLAT_MIF, platform->dev,
 				"SOC_VERSION: product_id 0x%x, rev 0x%x\n",
 				exynos_soc_info.product_id, exynos_soc_info.revision);
@@ -1326,6 +1399,8 @@ static int platform_mif_reset(struct scsc_mif_abs *interface, bool reset)
 	return ret;
 }
 
+#define SCSC_STATIC_MIFRAM_PAGE_TABLE
+
 static void __iomem *platform_mif_map_region(unsigned long phys_addr, size_t size)
 {
 	size_t      i;
@@ -1333,10 +1408,28 @@ static void __iomem *platform_mif_map_region(unsigned long phys_addr, size_t siz
 	void        *vmem;
 
 	size = PAGE_ALIGN(size);
-
+#ifndef SCSC_STATIC_MIFRAM_PAGE_TABLE
 	pages = kmalloc((size >> PAGE_SHIFT) * sizeof(*pages), GFP_KERNEL);
-	if (!pages)
+	if (!pages) {
+		SCSC_TAG_ERR(PLAT_MIF, "wlbt: kmalloc of %zd byte pages table failed\n", (size >> PAGE_SHIFT) * sizeof(*pages));
 		return NULL;
+	}
+#else
+	/* Reserve the table statically, but make sure .dts doesn't exceed it */
+	{
+		static struct page *mif_map_pages[(MIFRAMMAN_MAXMEM >> PAGE_SHIFT) * sizeof(*pages)];
+
+		pages = mif_map_pages;
+
+		SCSC_TAG_INFO(PLAT_MIF, "static mif_map_pages size %zd\n", sizeof(mif_map_pages));
+
+		if (size > MIFRAMMAN_MAXMEM) { /* Size passed in from .dts exceeds array */
+			SCSC_TAG_ERR(PLAT_MIF, "wlbt: shared DRAM requested in .dts %zd exceeds mapping table %d\n",
+					size, MIFRAMMAN_MAXMEM);
+			return NULL;
+		}
+	}
+#endif
 
 	/* Map NORMAL_NC pages with kernel virtual space */
 	for (i = 0; i < (size >> PAGE_SHIFT); i++) {
@@ -1346,7 +1439,11 @@ static void __iomem *platform_mif_map_region(unsigned long phys_addr, size_t siz
 
 	vmem = vmap(pages, size >> PAGE_SHIFT, VM_MAP, pgprot_writecombine(PAGE_KERNEL));
 
+#ifndef SCSC_STATIC_MIFRAM_PAGE_TABLE
 	kfree(pages);
+#endif
+	if (!vmem)
+		SCSC_TAG_ERR(PLAT_MIF, "wlbt: vmap of %zd pages failed\n", (size >> PAGE_SHIFT));
 	return (void __iomem *)vmem;
 }
 

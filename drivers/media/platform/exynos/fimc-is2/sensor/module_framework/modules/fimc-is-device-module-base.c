@@ -46,6 +46,11 @@
 #endif
 #ifdef CONFIG_VENDER_MCD_V2
 #include "fimc-is-sec-define.h"
+#if defined(CONFIG_LEDS_S2MU106_FLASH)
+#include <linux/muic/s2mu106-muic-hv.h>
+#include <linux/usb/typec/s2mu106/s2mu106_pd.h>
+#include <linux/usb/typec/s2mu106/s2mu106_typec.h>
+#endif
 #endif
 
 int sensor_module_register_paf(struct fimc_is_module_enum *module, int ch)
@@ -388,6 +393,13 @@ int sensor_module_deinit(struct v4l2_subdev *subdev)
 			if (ret) {
 				err("failed to turn off flash at flash expired handler\n");
 			}
+#if defined(CONFIG_LEDS_S2MU106_FLASH)
+			if (sensor_peri->flash->id == FLADRV_NAME_S2MU106) {
+				pdo_ctrl_by_flash(0);
+				muic_afc_set_voltage(9);
+				info("[%s]%d Down Volatge set Clear \n" ,__func__,__LINE__);
+			}
+#endif
 		}
 	}
 

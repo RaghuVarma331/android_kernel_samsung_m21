@@ -1,6 +1,6 @@
 /*****************************************************************************
  *
- * Copyright (c) 2012 - 2019 Samsung Electronics Co., Ltd. All rights reserved
+ * Copyright (c) 2012 - 2020 Samsung Electronics Co., Ltd. All rights reserved
  *
  ****************************************************************************/
 
@@ -180,14 +180,14 @@ static inline void ethr_ii_to_subframe_msdu(struct sk_buff *skb)
 
 #ifdef CONFIG_SCSC_WLAN_MUTEX_DEBUG
 #define SLSI_MUTEX_INIT(slsi_mutex__) \
-	{ \
+	do { \
 		(slsi_mutex__).owner = NULL; \
 		mutex_init(&(slsi_mutex__).mutex); \
 		(slsi_mutex__).valid = true; \
-	}
+	} while (0)
 
 #define SLSI_MUTEX_LOCK(slsi_mutex_to_lock) \
-	{ \
+	do { \
 		(slsi_mutex_to_lock).line_no_before = __LINE__; \
 		(slsi_mutex_to_lock).file_name_before = __FILE__; \
 		mutex_lock(&(slsi_mutex_to_lock).mutex); \
@@ -195,13 +195,13 @@ static inline void ethr_ii_to_subframe_msdu(struct sk_buff *skb)
 		(slsi_mutex_to_lock).line_no_after = __LINE__; \
 		(slsi_mutex_to_lock).file_name_after = __FILE__; \
 		(slsi_mutex_to_lock).function = __func__; \
-	}
+	} while (0)
 
 #define SLSI_MUTEX_UNLOCK(slsi_mutex_to_unlock) \
-	{ \
+	do { \
 		(slsi_mutex_to_unlock).owner = NULL; \
 		mutex_unlock(&(slsi_mutex_to_unlock).mutex); \
-	}
+	} while (0)
 #define SLSI_MUTEX_IS_LOCKED(slsi_mutex__) mutex_is_locked(&(slsi_mutex__).mutex)
 
 struct slsi_mutex {
@@ -319,6 +319,8 @@ struct slsi_scan_result {
 	struct sk_buff *beacon;
 	struct slsi_scan_result *next;
 	int band;
+	u8 ssid[32];
+	u8 ssid_length;
 };
 
 /* Per Interface Scan Data
@@ -572,13 +574,14 @@ struct slsi_vif_sta {
 	u8                      regd_mc_addr_count;
 	u8                      regd_mc_addr[SLSI_MC_ADDR_ENTRY_MAX][ETH_ALEN];
 	bool                    group_key_set;
+	bool			wep_key_set;
 	struct sk_buff          *mlme_scan_ind_skb;
 	bool                    roam_in_progress;
 	int                     tdls_peer_sta_records;
 	bool                    tdls_enabled;
 	struct cfg80211_bss     *sta_bss;
 	u8                      *assoc_req_add_info_elem;
-	u8                      assoc_req_add_info_elem_len;
+	int                      assoc_req_add_info_elem_len;
 
 	/* List of seen ESS and Freq associated with them */
 	struct list_head        network_map;
@@ -596,6 +599,9 @@ struct slsi_vif_sta {
 	atomic_t                drop_roamed_ind;
 	u8                      *vendor_disconnect_ies;
 	int                     vendor_disconnect_ies_len;
+	u8                      bssid[ETH_ALEN];
+	u8                      ssid[IEEE80211_MAX_SSID_LEN];
+	u8                      ssid_len;
 #ifdef CONFIG_SCSC_WLAN_SAE_CONFIG
 	u8                      *rsn_ie;
 	u8                      rsn_ie_len;
@@ -653,10 +659,17 @@ struct slsi_vif_ap {
 };
 
 struct slsi_nan_ndl_info {
-    u8 peer_nmi[ETH_ALEN];
-    s8 ndp_count;
+	u8 peer_nmi[ETH_ALEN];
+	s8 ndp_count;
 };
 
+enum ndp_slot_status {
+	ndp_slot_status_free,
+	ndp_slot_status_in_use,
+	ndp_slot_status_terminating,
+};
+
+#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 struct slsi_vif_nan {
 	struct slsi_hal_nan_config_req config;
 	u32 service_id_map;
@@ -666,9 +679,14 @@ struct slsi_vif_nan {
 	u8  ndp_ndi[SLSI_NAN_MAX_NDP_INSTANCES][ETH_ALEN];
 	u16 ndp_id2ndl_vif[SLSI_NAN_MAX_NDP_INSTANCES];
 	u16 ndp_local_ndp_id[SLSI_NAN_MAX_NDP_INSTANCES];
+	enum ndp_slot_status ndp_state[SLSI_NAN_MAX_NDP_INSTANCES];
+	/* followup_trans_id_map[index][]
+	 * each index(row) has 2 columns, column 0 has matchId
+	 * and cloumn 1 has transactionId*/
+	u16 followup_trans_id_map[SLSI_NAN_MAX_HOST_FOLLOWUP_REQ][2];
 
 	u8 disable_cluster_merge;
-	u16 nan_sdf_flags[SLSI_NAN_MAX_SERVICE_ID+1];
+	u16 nan_sdf_flags[SLSI_NAN_MAX_SERVICE_ID + 1];
 	/* fields used for nan stats/status*/
 	u8 local_nmi[ETH_ALEN];
 	u8 cluster_id[ETH_ALEN];
@@ -680,6 +698,7 @@ struct slsi_vif_nan {
 	u8 hopcount;
 	u32 random_mac_interval_sec;
 };
+#endif
 
 #define TCP_ACK_SUPPRESSION_RECORDS_MAX				16
 #define TCP_ACK_SUPPRESSION_RECORD_UNUSED_TIMEOUT	10 /* in seconds */
@@ -751,7 +770,7 @@ struct netdev_vif {
 	atomic_t                    is_registered;         /* Has the net dev been registered */
 	bool                        is_available;          /* Has the net dev been opened AND is usable */
 	bool                        is_fw_test;            /* Is the device in use as a test device via UDI */
-#ifdef CONFIG_SLSI_WLAN_STA_FWD_BEACON
+#if defined(CONFIG_SLSI_WLAN_STA_FWD_BEACON) && (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 100000)
 	bool                        is_wips_running;
 #endif
 	/* Structure can be accessed by cfg80211 ops, procfs/ioctls and as a result
@@ -837,7 +856,9 @@ struct netdev_vif {
 	struct slsi_vif_unsync      unsync;
 	struct slsi_vif_sta         sta;
 	struct slsi_vif_ap          ap;
+#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
 	struct slsi_vif_nan         nan;
+#endif
 
 	/* TCP ack suppression. */
 	struct slsi_tcp_ack_s *last_tcp_ack;
@@ -886,6 +907,11 @@ struct slsi_wes_mode_roam_scan_channels {
 struct slsi_wes_mode_roam_scan_channels_legacy {
 	int n;
 	u8  channels[SLSI_MAX_CHANNEL_LIST];
+};
+
+struct slsi_ioctl_args {
+	int arg_count;
+	u8  *args[];
 };
 
 struct slsi_dev_config {
@@ -1088,9 +1114,9 @@ struct slsi_dev {
 
 	/* BoT */
 	atomic_t                   in_pause_state;
+	struct work_struct recovery_work_on_stop;   /* Work on failure_reset recovery*/
 #ifdef CONFIG_SCSC_WLAN_SILENT_RECOVERY
 	struct work_struct recovery_work;   /* Work on subsystem_reset recovery*/
-	struct work_struct recovery_work_on_stop;   /* Work on failure_reset recovery*/
 	struct work_struct recovery_work_on_start;   /* Work on chip recovery*/
 #endif
 	/* Locking used to control Starting and stopping the chip */
@@ -1190,7 +1216,7 @@ struct slsi_dev {
 	u8                         fw_vht_cap[4];
 #ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
 	u8                         wifi_sharing_5ghz_channel[8];
-	int                        valid_5g_freq[25];
+	int                        valid_5g_chan[25];
 	int                        wifi_sharing_5g_restricted_channels[25];
 	int                        num_5g_restricted_channels;
 #endif
@@ -1226,7 +1252,11 @@ struct slsi_dev {
 	bool                       enhanced_pkt_filter_enabled;
 #endif
 	struct reg_database regdb;
+	u8 forced_bandwidth;
+	bool require_service_close;
 	bool                       mac_changed;
+	u8                         fw_ext_cap_ie[9]; /*extended capability IE length is 9 */
+	u32                        fw_ext_cap_ie_len;
 };
 
 /* Compact representation of channels a ESS has been seen on
@@ -1307,6 +1337,56 @@ static inline u16 slsi_tx_mgmt_host_tag(struct slsi_dev *sdev)
 	return slsi_tx_host_tag(sdev, 0);
 }
 
+#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+static inline struct net_device *slsi_nan_get_netdev_rcu(struct slsi_dev *sdev, struct sk_buff *skb)
+{
+	struct ethhdr *eth_hdr = (struct ethhdr *)fapi_get_data(skb);
+	u32 data_len = fapi_get_datalen(skb);
+	u8 idx = 0;
+
+	WARN_ON(!rcu_read_lock_held());
+
+	if (!eth_hdr || data_len < sizeof(*eth_hdr)) {
+		WARN(1, "invalid len:%d\n", data_len);
+		return NULL;
+	}
+
+	for (idx = SLSI_NAN_DATA_IFINDEX_START; idx <= CONFIG_SCSC_WLAN_MAX_INTERFACES; idx++) {
+		struct netdev_vif *ndev_vif;
+		u8 i = 0;
+
+		if (sdev->netdev[idx]) {
+			/*
+			 * In NAN, the 1:1 mapping of VIF to Netdevice does not apply.
+			 * The same firmware VIF may map to multiple netdevices. So derive
+			 * the Netdev here by matching the destination address of packet
+			 * to address of the Netdev.
+			 *
+			 * The rule above can't apply to multicast. So if it is multicast,
+			 * loop through the netdevices and it's peer records and find a
+			 * match of the source address to derive the netdev.
+			 */
+			if (is_multicast_ether_addr(eth_hdr->h_dest)) {
+				ndev_vif = (struct netdev_vif *)netdev_priv(sdev->netdev[idx]);
+				slsi_spinlock_lock(&ndev_vif->peer_lock);
+				for (i = 0; i < SLSI_PEER_INDEX_MAX; i++) {
+					if (ndev_vif->peer_sta_record[i] &&
+					    ndev_vif->peer_sta_record[i]->valid &&
+					    ether_addr_equal(ndev_vif->peer_sta_record[i]->address, eth_hdr->h_source)) {
+						slsi_spinlock_unlock(&ndev_vif->peer_lock);
+						return rcu_dereference(sdev->netdev[idx]);
+					}
+				}
+				slsi_spinlock_unlock(&ndev_vif->peer_lock);
+			} else if (ether_addr_equal(eth_hdr->h_dest, sdev->netdev[idx]->dev_addr)) {
+				return rcu_dereference(sdev->netdev[idx]);
+			}
+		}
+	}
+	return NULL;
+}
+#endif
+
 static inline struct net_device *slsi_get_netdev_rcu(struct slsi_dev *sdev, u16 ifnum)
 {
 	WARN_ON(!rcu_read_lock_held());
@@ -1349,11 +1429,6 @@ static inline struct net_device *slsi_get_netdev_by_mac_addr(struct slsi_dev *sd
 			return sdev->netdev[i];
 	}
 	return NULL;
-}
-
-static inline struct net_device *slsi_get_netdev_by_mac_addr_lockless(struct slsi_dev *sdev, u8 *mac_addr, int start_idx)
-{
-	return slsi_get_netdev_by_mac_addr(sdev, mac_addr, start_idx);
 }
 
 static inline struct net_device *slsi_get_netdev_by_mac_addr_locked(struct slsi_dev *sdev, u8 *mac_addr, int start_idx)

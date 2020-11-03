@@ -51,3 +51,11 @@ config SENSORS_SSP_LIGHT_STK3X6X
 	  factory test.
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
+	  
+config SENSORS_SSP_CAMERALIGHT_FOR_TAB
+        tristate "Sensors ssp camera light for tab"
+        default n
+        help
+          If you say yes here you get camera light support for tablet project.
+          To compile this driver as a module, choose M here: the
+          module will be called ssp.

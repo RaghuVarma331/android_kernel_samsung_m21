@@ -41,6 +41,8 @@
 #include <linux/usb/of.h>
 #include <linux/usb/otg.h>
 
+#include <linux/usb_notify.h>
+
 #include "core.h"
 #include "otg.h"
 #include "gadget.h"
@@ -71,8 +73,26 @@ int dwc3_set_vbus_current(int state)
 static void dwc3_exynos_set_vbus_current_work(struct work_struct *w)
 {
 	struct dwc3 *dwc = container_of(w, struct dwc3, set_vbus_current_work);
-
+	struct otg_notify *o_notify = get_otg_notify();
+	
+	switch (dwc->vbus_current) {
+	case USB_CURRENT_SUSPENDED:
+	/* set vbus current for suspend state is called in usb_notify. */
+		send_otg_notify(o_notify, NOTIFY_EVENT_USBD_SUSPEND, 1);
+		goto skip;
+	case USB_CURRENT_UNCONFIGURED:
+		send_otg_notify(o_notify, NOTIFY_EVENT_USBD_UNCONFIGURE, 1);
+		break;
+	case USB_CURRENT_HIGH_SPEED:
+	case USB_CURRENT_SUPER_SPEED:
+		send_otg_notify(o_notify, NOTIFY_EVENT_USBD_CONFIGURE, 1);
+		break;
+	default:
+		break;
+	}
 	dwc3_set_vbus_current(dwc->vbus_current);
+skip:
+	return;
 }
 /* -------------------------------------------------------------------------- */
 
@@ -611,6 +631,7 @@ int dwc3_event_buffers_setup(struct dwc3 *dwc)
 void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
 {
 	struct dwc3_event_buffer	*evt;
+	u32 left = 0;
 
 	evt = dwc->ev_buf;
 
@@ -618,7 +639,13 @@ void dwc3_event_buffers_cleanup(struct dwc3 *dwc)
 
 	dwc3_writel(dwc->regs, DWC3_GEVNTSIZ(0), DWC3_GEVNTSIZ_INTMASK
 			| DWC3_GEVNTSIZ_SIZE(0));
-	dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), 0);
+
+	left = dwc3_readl(dwc->regs, DWC3_GEVNTCOUNT(0));
+	left &= DWC3_GEVNTCOUNT_MASK;
+	while (left > 0) {
+		dwc3_writel(dwc->regs, DWC3_GEVNTCOUNT(0), 4);
+		left -= 4;
+	}
 }
 
 static int dwc3_alloc_scratch_buffers(struct dwc3 *dwc)

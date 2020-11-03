@@ -2286,6 +2286,9 @@ static ssize_t himax_debug_write(struct file *file, const char *buff,
 	if (copy_from_user(buf, buff, len))
 		return -EFAULT;
 
+	str_len = len;
+	buf[str_len - 1] = 0; /*remove \n*/
+
 	while (dbg_cmd_str[i]) {
 		str_ptr = strnstr(buf, dbg_cmd_str[i], len);
 		if (str_ptr) {

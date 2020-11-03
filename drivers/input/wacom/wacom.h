@@ -215,10 +215,10 @@ enum TABLE_SWAP {
 enum {
 	FW_NONE = 0,
 	FW_BUILT_IN,
-	FW_FFU,
+	FW_SPU,
 	FW_HEADER,
 	FW_IN_SDCARD,
-	FW_EX_SDCARD,
+	FW_IN_SDCARD_SIGNED,
 #ifdef CONFIG_SEC_FACTORY
 	FW_FACTORY_GARAGE,
 	FW_FACTORY_UNIT,
@@ -343,6 +343,7 @@ struct wacom_i2c {
 	volatile bool is_mode_change;
 	volatile bool ble_block_flag;
 	u32 check_elec;
+	bool cover;
 #ifdef CONFIG_SEC_FACTORY
 	volatile bool fac_garage_mode;
 	u32 garage_gain0;
@@ -389,6 +390,8 @@ int wacom_sec_init(struct wacom_i2c *);
 void wacom_sec_remove(struct wacom_i2c *);
 
 void wacom_print_info(struct wacom_i2c *wac_i2c);
+
+void wacom_swap_compensation(struct wacom_i2c *wac_i2c, bool cmd);
 
 extern int set_spen_mode(int mode);
 #ifdef CONFIG_SEC_FACTORY

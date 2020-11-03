@@ -372,6 +372,7 @@ struct mms_ts_info {
 	unsigned char finger_state[MAX_FINGER_NUM];
 	int touch_count;
 
+	u8 fod_lp_mode;
 	u8 fod_tx;
 	u8 fod_rx;
 	u8 fod_vi_size;

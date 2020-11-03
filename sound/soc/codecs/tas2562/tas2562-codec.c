@@ -630,7 +630,7 @@ static int tas2562_set_bitwidth(struct tas2562_priv *p_tas2562, int bitwidth)
 			TAS2562_TDMCONFIGURATIONREG2_RXWLEN32_MASK,
 			TAS2562_TDMCONFIGURATIONREG2_RXWLEN32_24BITS);
 			p_tas2562->mn_ch_size = 24;
-			slot_width_tmp = 32;
+			slot_width_tmp = 24;
 		break;
 	case SNDRV_PCM_FORMAT_S32_LE:
 			p_tas2562->update_bits(p_tas2562, channel_both,
@@ -1116,6 +1116,61 @@ static int tas2562_set_icn_switch(struct snd_kcontrol *pKcontrol,
         }
 	return 0;
 }
+static int tas2562_dac_mute_ctrl_get(struct snd_kcontrol *pKcontrol,
+	struct snd_ctl_elem_value *pValue)
+{
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(pKcontrol);
+	struct tas2562_priv *p_tas2562 = snd_soc_codec_get_drvdata(codec);
+
+	pValue->value.integer.value[0] = p_tas2562->dac_mute;
+
+	dev_dbg(p_tas2562->dev, "%s = %ld\n",
+		__func__, pValue->value.integer.value[0]);
+
+	return 0;
+}
+
+static int tas2562_dac_mute_ctrl_put(struct snd_kcontrol *pKcontrol,
+	struct snd_ctl_elem_value *pValue)
+{
+	int n_result = 0;
+	enum channel chn;
+	int mute = pValue->value.integer.value[0];
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(pKcontrol);
+	struct tas2562_priv *p_tas2562 = snd_soc_codec_get_drvdata(codec);
+
+	dev_dbg(p_tas2562->dev, "%s, %d\n", __func__, mute);
+	mutex_lock(&p_tas2562->codec_lock);
+
+	if ((p_tas2562->spk_l_control == 1)
+		&& (p_tas2562->spk_r_control == 1)
+		&& (p_tas2562->mn_channels == 2))
+		chn = channel_both;
+	else if (p_tas2562->spk_l_control == 1)
+		chn = channel_left;
+	else if ((p_tas2562->spk_r_control == 1)
+			&& (p_tas2562->mn_channels == 2))
+		chn = channel_right;
+	else
+		chn = channel_left;
+
+	if (mute) {
+		n_result = p_tas2562->update_bits(p_tas2562, chn,
+		TAS2562_POWERCONTROL,
+		TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK,
+		TAS2562_POWERCONTROL_OPERATIONALMODE10_MUTE);
+	} else {
+		n_result = p_tas2562->update_bits(p_tas2562, chn,
+		TAS2562_POWERCONTROL,
+		TAS2562_POWERCONTROL_OPERATIONALMODE10_MASK,
+		TAS2562_POWERCONTROL_OPERATIONALMODE10_ACTIVE);
+	}
+
+        p_tas2562->dac_mute = mute;
+	mutex_unlock(&p_tas2562->codec_lock);
+
+	return n_result;
+}
 static const struct snd_kcontrol_new tas2562_snd_controls[] = {
 	SOC_SINGLE_TLV("Amp Output Level", TAS2562_PLAYBACKCONFIGURATIONREG0,
 		1, 0x16, 0,
@@ -1124,6 +1179,8 @@ static const struct snd_kcontrol_new tas2562_snd_controls[] = {
 			tas2562_system_mute_ctrl_get, tas2562_system_mute_ctrl_put),
 	SOC_SINGLE_EXT("SmartPA Mute", SND_SOC_NOPM, 0, 0x0001, 0,
 			tas2562_mute_ctrl_get, tas2562_mute_ctrl_put),
+	SOC_SINGLE_EXT("TAS2562 DAC Mute", SND_SOC_NOPM, 0, 0x0001, 0,
+			tas2562_dac_mute_ctrl_get, tas2562_dac_mute_ctrl_put),
 	SOC_ENUM_EXT("TAS2562 Left Speaker Switch", spk_enum[0],
 			tas2562_get_left_speaker_switch,
 			tas2562_set_left_speaker_switch),

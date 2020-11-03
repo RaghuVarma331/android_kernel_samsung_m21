@@ -672,6 +672,8 @@ static bool hx83102e_sense_off(bool check_en)
 	uint8_t tmp_addr[DATA_LEN_4];
 	uint8_t tmp_data[DATA_LEN_4];
 
+	I("Enter %s\n", __func__);
+
 	do {
 		if (cnt == 0 || (tmp_data[0] != 0xA5 && tmp_data[0] != 0x00 && tmp_data[0] != 0x87))
 			kp_g_core_fp->fp_register_write((*kp_pfw_op)->addr_ctrl_fw_isr, DATA_LEN_4, (*kp_pfw_op)->data_fw_stop, 0);

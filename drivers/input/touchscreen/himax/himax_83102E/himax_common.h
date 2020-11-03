@@ -89,7 +89,7 @@
 #define HX_TP_PROC_GUEST_INFO
 /*#define HX_NEW_EVENT_STACK_FORMAT*/
 #define HX_AUTO_UPDATE_FW
-/*#define HX_SMART_WAKEUP*/
+#define HX_SMART_WAKEUP
 /*#define HX_GESTURE_TRACK*/
 /*#define HX_HIGH_SENSE*/
 /*#define HX_PALM_REPORT*/
@@ -597,6 +597,10 @@ extern struct device *g_device;
 #ifdef CONFIG_TOUCHSCREEN_HIMAX_DEBUG
 	int himax_debug_init(void);
 	int himax_debug_remove(void);
+#endif
+
+#ifdef CONFIG_BATTERY_SAMSUNG
+	extern unsigned int lpcharge;
 #endif
 
 #if defined(HX_PLATFOME_DEFINE_KEY)

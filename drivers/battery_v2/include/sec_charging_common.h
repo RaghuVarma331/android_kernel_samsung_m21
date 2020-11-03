@@ -75,9 +75,11 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_ERROR_CAUSE,
 	POWER_SUPPLY_EXT_PROP_SYSOVLO,
 	POWER_SUPPLY_EXT_PROP_VBAT_OVP,
+	POWER_SUPPLY_EXT_PROP_FGSRC_SWITCHING,
 	POWER_SUPPLY_EXT_PROP_USB_CONFIGURE,
 	POWER_SUPPLY_EXT_PROP_WATER_DETECT,
 	POWER_SUPPLY_EXT_PROP_SURGE,
+	POWER_SUPPLY_EXT_PROP_DISABLE_FACTORY_MODE,
 	POWER_SUPPLY_EXT_PROP_SUB_PBA_TEMP_REC,
 	POWER_SUPPLY_EXT_PROP_OVERHEAT_NOTIFY,
 	POWER_SUPPLY_EXT_PROP_CHARGE_POWER,
@@ -105,11 +107,20 @@ enum power_supply_ext_property {
 	POWER_SUPPLY_EXT_PROP_CURRENT_MEASURE,
 	POWER_SUPPLY_EXT_PROP_SRCCAP,
 	POWER_SUPPLY_EXT_PROP_CHARGE_BOOST,
-	POWER_SUPPLY_EXT_PROP_INBAT_VOLTAGE_FGSRC_SWITCHING,
 	POWER_SUPPLY_EXT_PROP_FUELGAUGE_RESET,
 	POWER_SUPPLY_EXT_PROP_FACTORY_VOLTAGE_REGULATION,
 	POWER_SUPPLY_EXT_PROP_ANDIG_IVR_SWITCH,
 	POWER_SUPPLY_EXT_PROP_FUELGAUGE_FACTORY,
+#if defined(CONFIG_BATTERY_AGE_FORECAST)
+	POWER_SUPPLY_EXT_PROP_UPDATE_BATTERY_DATA,
+#endif
+	POWER_SUPPLY_EXT_PROP_ENABLE_HW_FACTORY_MODE,
+};
+
+enum ic_type {
+	IC_TYPE_UNKNOWN = 0,
+	IC_TYPE_IFPMIC_SM5713,
+	IC_TYPE_IFPMIC_S2MU106,
 };
 
 enum rx_device_type {
@@ -121,6 +132,8 @@ enum rx_device_type {
 };
 
 enum sec_battery_usb_conf {
+	USB_CURRENT_NONE = 0,
+	USB_CURRENT_SUSPENDED = 1,
 	USB_CURRENT_UNCONFIGURED = 100,
 	USB_CURRENT_HIGH_SPEED = 500,
 	USB_CURRENT_SUPER_SPEED = 900,
@@ -517,9 +530,11 @@ enum sec_battery_full_charged {
 };
 
 /* BATT_INBAT_VOLTAGE */
-enum sec_battery_inbat_fgsrc_switching {
-	SEC_BAT_INBAT_FGSRC_SWITCHING_ON = 0,
-	SEC_BAT_INBAT_FGSRC_SWITCHING_OFF,
+enum sec_battery_fgsrc_switching {
+	SEC_BAT_INBAT_FGSRC_SWITCHING_VBAT = 0,
+	SEC_BAT_INBAT_FGSRC_SWITCHING_VSYS,
+	SEC_BAT_FGSRC_SWITCHING_VBAT,
+	SEC_BAT_FGSRC_SWITCHING_VSYS
 };
 
 enum ta_alert_mode {
@@ -785,6 +800,11 @@ struct sec_age_data {
 	struct sec_age_data
 #endif
 
+typedef struct {
+	unsigned int cycle;
+	unsigned int asoc;
+} battery_health_condition;
+
 struct sec_wireless_rx_power_info {
 	unsigned int vout;
 	unsigned int input_current_limit;
@@ -836,8 +856,7 @@ struct sec_battery_platform_data {
 	/* NO NEED TO BE CHANGED */
 	unsigned int pre_afc_input_current;
 	unsigned int pre_wc_afc_input_current;
-	unsigned int store_mode_afc_input_current;
-	unsigned int store_mode_hv_wireless_input_current;
+	unsigned int store_mode_max_input_power;
 	unsigned int prepare_ta_delay;
 
 	char *pmic_name;
@@ -1108,6 +1127,8 @@ struct sec_battery_platform_data {
 	int age_data_length;
 	sec_age_data_t* age_data;
 #endif
+	battery_health_condition* health_condition;
+
 	int siop_input_limit_current;
 	int siop_charging_limit_current;
 	int siop_hv_input_limit_current;

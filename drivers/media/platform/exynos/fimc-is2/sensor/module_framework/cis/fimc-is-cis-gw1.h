@@ -26,6 +26,8 @@
 #define SENSOR_GW1_FINE_INTEGRATION_TIME_MAX_MARGIN             (0x0)
 #define SENSOR_GW1_COARSE_INTEGRATION_TIME_MIN                  (0x4)
 #define SENSOR_GW1_COARSE_INTEGRATION_TIME_MAX_MARGIN           (0x4)
+#define SENSOR_GW1_MAX_COARSE_INTEGRATION_TIME                  (65503)
+#define SENSOR_GW1_MAX_CIT_LSHIFT_VALUE                         (0xB)
 
 /* GW1 Regsister Address */
 #define SENSOR_GW1_DIRECT_PAGE_ACCESS_MARK      (0xFCFC)
@@ -47,6 +49,8 @@
 #define SENSOR_GW1_AGAIN_CODE_GLOBAL_ADDR       (0x0204)
 #define SENSOR_GW1_DGAIN_GLOBAL_ADDR            (0x020E)
 #define SENSOR_GW1_FRAME_LENGTH_LINE_ADDR       (0x0340)
+#define SENSOR_GW1_FRM_LENGTH_LINE_LSHIFT_ADDR  (0x0702)
+#define SENSOR_GW1_CIT_LSHIFT_ADDR              (0x0704)
 #define SENSOR_GW1_LINE_LENGTH_PCK_ADDR         (0x0342)
 #define SENSOR_GW1_WBGAIN_RED                   (0x0D82)
 #define SENSOR_GW1_WBGAIN_GREEN                 (0x0D84)

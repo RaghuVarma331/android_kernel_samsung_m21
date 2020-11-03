@@ -78,7 +78,7 @@ struct a96t3x6_data {
 	bool current_state;
 	bool expect_state;
 	bool earjack;
-	u8 earjack_noise;
+	int earjack_noise;
 #ifdef CONFIG_SEC_FACTORY
 	int irq_count;
 	int abnormal_mode;
@@ -111,6 +111,7 @@ struct a96t3x6_data {
 	int debug_count;
 	int firmware_count;
 	int identity_number;
+	bool crc_check;
 #if defined(CONFIG_MUIC_NOTIFIER)
 	struct notifier_block cpuidle_muic_nb;
 #endif
@@ -1362,7 +1363,55 @@ static int a96t3x6_i2c_read_checksum(struct a96t3x6_data *data)
 	data->checksum_l = checksum[5];
 	return 0;
 }
+#ifdef CONFIG_SENSORS_A96T3X6_CRC_CHECK
+static int a96t3x6_crc_check(struct a96t3x6_data *data)
+{
+	unsigned char cmd = 0xAA;
+	unsigned char val = 0xFF;
+	unsigned char retry = 2;
+	int ret;
 
+	/* 
+	* abov grip fw uses active/deactive mode in each period
+	* To check crc check, make the mode as always active mode.
+	*/
+
+	grip_always_active(data, 1);
+
+	/* crc check */
+	ret = a96t3x6_i2c_write(data->client, REG_FW_VER, &cmd);
+	if (ret < 0) {
+		GRIP_INFO("crc checking enter failed\n");
+		grip_always_active(data, 0);
+		return ret;
+	}
+
+	data->crc_check = CRC_FAIL;
+
+	while (retry--) {
+		msleep(400);
+
+		ret = a96t3x6_i2c_read(data->client, REG_FW_VER, &val, 1);
+		if (ret < 0) {
+			GRIP_INFO("crc read failed\n");
+			continue;
+		}
+
+		ret = (int)val;
+		if (val == 0x00) {
+			GRIP_INFO("crc check fail 0x%2x\n", val);
+		} else {
+			/* only success route */
+			data->crc_check = CRC_PASS;
+			GRIP_INFO("crc check normal 0x%2x\n", val);
+			break;
+		}
+	}
+
+	grip_always_active(data, 0);
+	return ret;
+}
+#endif
 static int a96t3x6_fw_write(struct a96t3x6_data *data, unsigned char *addrH,
 						unsigned char *addrL, unsigned char *val)
 {
@@ -1617,16 +1666,20 @@ static void grip_always_active(struct a96t3x6_data *data, int on)
 	else
 		cmd = CMD_OFF;
 
-	ret = a96t3x6_i2c_write(data->client, REG_GRIP_ALWAYS_ACTIVE, &cmd);
-		if (ret < 0)
-			GRIP_INFO("failed to change grip always active mode\n");
-
 	while (retry--) {
+		ret = a96t3x6_i2c_write(data->client, REG_GRIP_ALWAYS_ACTIVE, &cmd);
+		if (ret < 0) {
+			GRIP_INFO("i2c write fail(%d)\n", ret);
+			continue;
+		}
+
 		msleep(20);
 
 		ret = a96t3x6_i2c_read(data->client, REG_GRIP_ALWAYS_ACTIVE, &r_buf, 1);
-		if (ret < 0)
+		if (ret < 0) {
 			GRIP_INFO("i2c read fail(%d)\n", ret);
+			continue;
+		}
 
 		if ((cmd == CMD_ON && r_buf == GRIP_ALWAYS_ACTIVE_READY) ||
 			(cmd == CMD_OFF && r_buf == CMD_OFF))
@@ -1635,7 +1688,10 @@ static void grip_always_active(struct a96t3x6_data *data, int on)
 			GRIP_INFO("Wrong value 0x%x, retry again %d\n", r_buf, retry);
 	}
 
-	GRIP_INFO("Grip check mode: cmd 0x%x, return value 0x%x\n", cmd, r_buf);
+	if (retry < 0)
+		GRIP_INFO("failed to change grip always active mode\n");
+	else
+		GRIP_INFO("cmd 0x%x, return 0x%x\n", cmd, r_buf);
 }
 
 static ssize_t grip_fw_update(struct device *dev,
@@ -1787,8 +1843,8 @@ static ssize_t grip_crc_check_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct a96t3x6_data *data = dev_get_drvdata(dev);
-	int ret;
 #ifndef CONFIG_SENSORS_A96T3X6_CRC_CHECK
+	int ret;
 	unsigned char cmd[3] = {0x1B, 0x00, 0x10};
 	unsigned char checksum[2] = {0, };
 
@@ -1813,48 +1869,15 @@ static ssize_t grip_crc_check_show(struct device *dev,
 		return snprintf(buf, PAGE_SIZE, "OK,%02x%02x\n",
 			checksum[0], checksum[1]);
 #else
-	unsigned char cmd = 0xAA;
-	unsigned char val = 0xFF;
-	unsigned char crc_check = CRC_FAIL;
-	unsigned char retry = 10;
+{
+	int val;
+	val = a96t3x6_crc_check(data);
 
-	/* 
-	* abov grip fw uses active/deactive mode in each period
-	* To check crc check, make the mode as always active mode.
-	*/
-
-	grip_always_active(data, 1);
-
-	/* crc check */
-	ret = a96t3x6_i2c_write(data->client, REG_FW_VER, &cmd);
-	if (ret < 0) {
-		GRIP_INFO("crc checking enter failed\n");
-	}
-
-	while (retry--) {
-		msleep(400);
-
-		a96t3x6_i2c_read(data->client, REG_FW_VER, &val, 1);
-		if (ret < 0) {
-			GRIP_INFO("crc read failed\n");
-		}
-		GRIP_INFO("crc check value = 0x%2x\n", val);
-
-		if (val == 0x00) {
-			GRIP_INFO("crc check fail\n");
-		} else {
-			GRIP_INFO("crc check normal\n");
-			/* only success route */
-			crc_check = CRC_PASS;
-			break;
-		}
-	}
-	grip_always_active(data, 0);
-
-	if (crc_check == CRC_PASS)
+	if (data->crc_check == CRC_PASS)
 		return snprintf(buf, PAGE_SIZE, "OK,%02x\n", val);
 	else
 		return snprintf(buf, PAGE_SIZE, "NG,%02x\n", val);
+}
 #endif
 }
 
@@ -2049,7 +2072,7 @@ static int a96t3x6_fw_check(struct a96t3x6_data *data)
 	}
 
 	if (data->fw_ver < data->fw_ver_bin || data->fw_ver > TEST_FIRMWARE_DETECT_VER
-				|| force == true) {
+				|| force == true || data->crc_check == CRC_FAIL) {
 		GRIP_ERR("excute fw update (0x%x -> 0x%x)\n",
 			data->fw_ver, data->fw_ver_bin);
 		ret = a96t3x6_flash_fw(data, true, BUILT_IN);
@@ -2172,7 +2195,7 @@ static int a96t3x6_parse_dt(struct a96t3x6_data *data, struct device *dev)
 	if (ret < 0)
 		data->firmup_cmd = 0;
 
-	ret = of_property_read_u8(np, "a96t3x6,earjack_noise", &data->earjack_noise);
+	ret = of_property_read_u32(np, "a96t3x6,earjack_noise", &data->earjack_noise);
 	if (ret < 0)
 		data->earjack_noise = 0;
 
@@ -2312,6 +2335,7 @@ static int a96t3x6_probe(struct i2c_client *client,
 	data->expect_state = false;
 	data->skip_event = false;
 	data->sar_mode = false;
+	data->crc_check = CRC_PASS;
 	wake_lock_init(&data->grip_wake_lock, WAKE_LOCK_SUSPEND, "grip wake lock");
 
 	ret = a96t3x6_parse_dt(data, &client->dev);
@@ -2337,6 +2361,9 @@ static int a96t3x6_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, data);
 #ifndef CONFIG_SENSORS_FW_VENDOR
+#if defined(CONFIG_SEC_FACTORY) && defined(CONFIG_SENSORS_A96T3X6_CRC_CHECK)
+	a96t3x6_crc_check(data);
+#endif
 	ret = a96t3x6_fw_check(data);
 	if (ret) {
 		GRIP_ERR("failed to firmware check (%d)\n", ret);

@@ -5285,8 +5285,10 @@ static void abox_download_extra_firmware(struct abox_data *data)
 			size = DRAM_FIRMWARE_SIZE;
 			break;
 		case 2:
-			base = phys_to_virt(shm_get_vss_base());
-			size = shm_get_vss_size();
+			if (IS_ENABLED(CONFIG_SHM_IPC)) {
+				base = phys_to_virt(shm_get_vss_base());
+				size = shm_get_vss_size();
+			}
 			break;
 		default:
 			dev_err(dev, "%s: area is invalid name=%s, area=%u, offset=%u\n",
@@ -5385,6 +5387,18 @@ static int abox_download_firmware(struct platform_device *pdev)
 			data->firmware_dram->size);
 	memset(data->dram_base + data->firmware_dram->size, 0,
 			DRAM_FIRMWARE_SIZE - data->firmware_dram->size);
+
+   if ((data->bootargs_offset != 0) && (data->bootargs != NULL)) {
+		   dev_info(dev, "bootargs[%p][0x%x][%s]\n",
+						  data->sram_base,
+							data->bootargs_offset, data->bootargs);
+
+		   memcpy_toio(data->sram_base + data->bootargs_offset,
+						   data->bootargs, SZ_512);
+
+   } else {
+		   dev_info(dev, "bootargs is NULL\n");
+   }
 
 	abox_download_extra_firmware(data);
 
@@ -5576,6 +5590,7 @@ static int abox_enable(struct device *dev)
 
 	abox_gic_enable_irq(data->dev_gic);
 
+	abox_request_cpu_gear(dev, data, DEFAULT_CPU_GEAR_ID, ABOX_CPU_GEAR_MAX);
 	ret = clk_set_rate(data->clk_pll, AUD_PLL_RATE_HZ_FOR_48000);
 	if (ret < 0)
 		dev_warn(dev, "setting audio pll clock to 1.2Ghz is failed: %d\n",	ret);
@@ -6046,7 +6061,6 @@ static int samsung_abox_probe(struct platform_device *pdev)
 	struct device_node *np_tmp;
 	struct platform_device *pdev_tmp;
 	struct abox_data *data;
-	phys_addr_t paddr;
 	int ret, i;
 
 	dev_info(dev, "%s\n", __func__);
@@ -6162,17 +6176,21 @@ static int samsung_abox_probe(struct platform_device *pdev)
 	iommu_map(data->iommu_domain, IOVA_PRIVATE, data->priv_base_phys,
 			PRIVATE_SIZE, 0);
 
-	paddr = shm_get_vss_base();
-	dev_info(&pdev->dev, "%s(%pa) is mapped on %p with size of %d\n",
-			"vss firmware", &paddr, phys_to_virt(paddr),
-			shm_get_vss_size());
-	abox_iommu_map(dev, IOVA_VSS_FIRMWARE, paddr, shm_get_vss_size(),
-			shm_get_vss_region());
+	if (IS_ENABLED(CONFIG_SHM_IPC)) {
+		phys_addr_t paddr;
 
-	paddr = shm_get_vparam_base();
-	dev_info(dev, "%s(%#x) alloc\n", "vss parameter",
-			shm_get_vparam_size());
-	abox_iommu_map(dev, IOVA_VSS_PARAMETER, paddr, shm_get_vparam_size(), 0);
+		paddr = shm_get_vss_base();
+		dev_info(&pdev->dev, "%s(%pa) is mapped on %p with size of %d\n",
+				"vss firmware", &paddr, phys_to_virt(paddr),
+				shm_get_vss_size());
+		abox_iommu_map(dev, IOVA_VSS_FIRMWARE, paddr, shm_get_vss_size(),
+				shm_get_vss_region());
+
+		paddr = shm_get_vparam_base();
+		dev_info(dev, "%s(%#x) alloc\n", "vss parameter",
+				shm_get_vparam_size());
+		abox_iommu_map(dev, IOVA_VSS_PARAMETER, paddr, shm_get_vparam_size(), 0);
+	}
 
 	abox_iommu_map(dev, 0x10000000, 0x10000000, PAGE_SIZE, 0);
 	iovmm_set_fault_handler(&pdev->dev, abox_iommu_fault_handler, data);
@@ -6256,6 +6274,25 @@ static int samsung_abox_probe(struct platform_device *pdev)
 		return -EPROBE_DEFER;
 	}
 	data->dev_gic = &pdev_tmp->dev;
+
+	data->bootargs_offset = 0;
+	ret = of_property_read_u32(np, "samsung,abox-bootargs-offset",
+			&data->bootargs_offset);
+	if (ret < 0) {
+		dev_err(dev, "Failed to read %s: %d\n",
+				"samsung,abox-bootargs-offset", ret);
+		data->bootargs_offset = 0;
+	}
+
+	ret = of_property_read_string(np, "samsung,abox-bootargs",
+			&data->bootargs);
+	if (ret < 0) {
+		dev_err(dev, "Failed to read %s: %d\n",
+				"samsung,abox-bootargs", ret);
+	}
+
+	dev_info(dev, "bootargs[0x%x][%s]\n",
+				data->bootargs_offset, data->bootargs);
 
 	if (abox_test_quirk(data, ABOX_QUIRK_SHARE_VTS_SRAM)) {
 		np_tmp = of_parse_phandle(np, "vts", 0);

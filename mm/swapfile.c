@@ -640,7 +640,7 @@ static void swap_range_free(struct swap_info_struct *si, unsigned long offset,
 			    unsigned int nr_entries)
 {
 	unsigned long end = offset + nr_entries - 1;
-	void (*swap_slot_free_notify)(struct block_device *, unsigned long, bool);
+	void (*swap_slot_free_notify)(struct block_device *, unsigned long);
 
 	if (offset < si->lowest_bit)
 		si->lowest_bit = offset;
@@ -661,7 +661,7 @@ static void swap_range_free(struct swap_info_struct *si, unsigned long offset,
 	while (offset <= end) {
 		frontswap_invalidate_page(si->type, offset);
 		if (swap_slot_free_notify)
-			swap_slot_free_notify(si->bdev, offset, false);
+			swap_slot_free_notify(si->bdev, offset);
 		offset++;
 	}
 }
@@ -3470,11 +3470,6 @@ int swap_duplicate(swp_entry_t entry)
 int swapcache_prepare(swp_entry_t entry)
 {
 	return __swap_duplicate(entry, SWAP_HAS_CACHE);
-}
-
-struct swap_info_struct *swp_swap_info(swp_entry_t entry)
-{
-	return swap_info[swp_type(entry)];
 }
 
 struct swap_info_struct *page_swap_info(struct page *page)

@@ -176,8 +176,14 @@ int himax_parse_dt(struct himax_ts_data *ts,
 		I(" DT:gpio_3v3_en value is not valid\n");
 
 	I(" DT:gpio_irq=%d, gpio_rst=%d, gpio_3v3_en=%d\n", pdata->gpio_irq, pdata->gpio_reset, pdata->gpio_3v3_en);
-
+	
+	pdata->support_dual_fw = of_property_read_bool(dt, "support_dual_fw");
 	of_property_read_string(dt, "himax,fw-path", &pdata->i_CTPM_firmware_name);
+
+	/* CU IC: 13 D2 30, AL IC: 0C D2 34*/
+	if (pdata->support_dual_fw && lcdtype == 0x0CD234) {
+		of_property_read_string(dt, "himax,fw-path_old", &pdata->i_CTPM_firmware_name);
+	}
 
 	if (of_property_read_u32(dt, "report_type", &data) == 0) {
 		pdata->protocol_type = data;
@@ -204,6 +210,11 @@ static ssize_t himax_spi_sync(struct himax_ts_data *ts, struct spi_message *mess
 {
 	int status;
 
+	if (atomic_read(&ts->suspend_mode) == 1) {
+		E("%s: now IC status is OFF\n", __func__);
+		return -EIO;
+	}
+
 	status = spi_sync(ts->spi, message);
 
 	if (status == 0) {
@@ -216,10 +227,16 @@ static ssize_t himax_spi_sync(struct himax_ts_data *ts, struct spi_message *mess
 
 static int himax_spi_read(uint8_t *command, uint8_t command_len, uint8_t *data, uint32_t length, uint8_t toRetry)
 {
+	struct himax_ts_data *ts = private_ts;
 	struct spi_message message;
 	struct spi_transfer xfer[2];
 	int retry;
 	int error;
+
+	if (atomic_read(&ts->suspend_mode) == 1) {
+		E("%s: now IC status is OFF\n", __func__);
+		return -EIO;
+	}
 
 	spi_message_init(&message);
 	memset(xfer, 0, sizeof(xfer));
@@ -251,6 +268,7 @@ static int himax_spi_read(uint8_t *command, uint8_t command_len, uint8_t *data, 
 
 static int himax_spi_write(uint8_t *buf, uint32_t length)
 {
+	struct himax_ts_data *ts = private_ts;
 
 	struct spi_transfer	t = {
 			.tx_buf		= buf,
@@ -260,6 +278,11 @@ static int himax_spi_write(uint8_t *buf, uint32_t length)
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
+
+	if (atomic_read(&ts->suspend_mode) == 1) {
+		E("%s: now IC status is OFF\n", __func__);
+		return -EIO;
+	}
 
 	return himax_spi_sync(private_ts, &m);
 
@@ -348,7 +371,7 @@ void himax_int_enable(int enable)
 		private_ts->irq_enabled = 0;
 	}
 
-	I("enable = %d\n", enable);
+	I("%s, %d\n", __func__, enable);
 	spin_unlock_irqrestore(&ts->irq_lock, irqflags);
 }
 EXPORT_SYMBOL(himax_int_enable);
@@ -895,25 +918,38 @@ int fb_notifier_callback(struct notifier_block *self,
 							unsigned long event, void *data)
 {
 	struct fb_event *evdata = data;
-	int *blank = NULL;
+	int blank;
 	struct himax_ts_data *ts =
 	    container_of(self, struct himax_ts_data, fb_notif);
 
-	I(" %s\n", __func__);
+	switch (event) {
+	case FB_EARLY_EVENT_BLANK:
+	case FB_EVENT_BLANK:
+		break;
+	default:
+		return NOTIFY_DONE;
+	}
 
 	if (evdata == NULL) {
 		I("%s %s evdata is null\n", HIMAX_LOG_TAG, __func__);
 		return 0;
 	}
 
-	blank = evdata->data;
+	if (evdata->data == NULL) {
+		I("%s %s evdata data is null\n", HIMAX_LOG_TAG, __func__);
+		return 0;
+	}
+
+	blank = *(int *)evdata->data;
+
+	I(" %s event: %x, blank: %d\n", __func__, event, blank);
 
 	if (evdata && evdata->data && ts != NULL && ts->dev != NULL) {
 		if (event == FB_EARLY_EVENT_BLANK &&
-			*blank == FB_BLANK_POWERDOWN) {
+			blank == FB_BLANK_POWERDOWN) {
 			himax_common_suspend(ts->dev);
 		} else if (event == FB_EVENT_BLANK &&
-				*blank == FB_BLANK_UNBLANK) {
+				blank == FB_BLANK_UNBLANK) {
 			himax_common_resume(ts->dev);
 		}
 	}
@@ -1026,6 +1062,15 @@ static int tsp_vbus_notification(struct notifier_block *nb,
 }
 #endif
 
+unsigned int hx_bootmode;
+static int __init get_bootmoode(char *arg)
+{
+	get_option(&arg, &hx_bootmode);
+
+	return 0;
+}
+early_param("bootmode",get_bootmoode);
+
 int himax_chip_common_probe(struct spi_device *spi)
 {
 	struct himax_ts_data *ts;
@@ -1037,6 +1082,12 @@ int himax_chip_common_probe(struct spi_device *spi)
 		dev_err(&spi->dev,
 				"%s: Full duplex not supported by host\n", __func__);
 		return -EIO;
+	}
+
+	if (hx_bootmode == 2) {
+		input_info(true, &spi->dev, "%s : Do not load driver due to : device entered recovery mode %d\n",
+			__func__, hx_bootmode);
+		return -ENODEV;
 	}
 
 	gBuffer = kzalloc(sizeof(uint8_t) * HX_MAX_WRITE_SZ, GFP_KERNEL);
@@ -1139,6 +1190,14 @@ static struct spi_driver himax_common_driver = {
 
 static int __init himax_common_init(void)
 {
+#ifdef CONFIG_BATTERY_SAMSUNG
+		if (lpcharge == 1) {
+			KE("%s %s: Do not load driver due to : lpm %d\n",
+					SECLOG, __func__, lpcharge);
+			return -ENODEV;
+		}
+#endif
+
 	KI("Himax common touch panel driver init\n");
 	D("Himax check double loading\n");
 	if (g_mmi_refcnt++ > 0) {

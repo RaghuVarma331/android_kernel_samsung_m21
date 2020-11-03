@@ -29,12 +29,15 @@
 #define SENSOR_IMX582_COARSE_INTEGRATION_TIME_MIN_FOR_PDAF     (6)
 #define SENSOR_IMX582_COARSE_INTEGRATION_TIME_MIN_FOR_V2H2     (6)
 #define SENSOR_IMX582_COARSE_INTEGRATION_TIME_MAX_MARGIN       (48)
+#define SENSOR_IMX582_MAX_COARSE_INTEG_WITH_FRM_LENGTH_CTRL    (65535)
+#define SENSOR_IMX582_MAX_CIT_LSHIFT_VALUE        (0x7)
 
 #define SENSOR_IMX582_OTP_PAGE_SETUP_ADDR         (0x0A02)
 #define SENSOR_IMX582_OTP_READ_TRANSFER_MODE_ADDR (0x0A00)
 #define SENSOR_IMX582_OTP_STATUS_REGISTER_ADDR    (0x0A01)
 #define SENSOR_IMX582_OTP_CHIP_REVISION_ADDR      (0x0018)
 
+#define SENSOR_IMX582_CIT_LSHIFT_ADDR             (0x3100)
 #define SENSOR_IMX582_FRAME_LENGTH_LINE_ADDR      (0x0340)
 #define SENSOR_IMX582_LINE_LENGTH_PCK_ADDR        (0x0342)
 #define SENSOR_IMX582_FINE_INTEG_TIME_ADDR        (0x0200)
@@ -62,6 +65,8 @@
 #define SENSOR_IMX582_QUAD_SENS_CAL_SIZE          (2304)
 #define SENSOR_IMX582_QUAD_SENS_REG_ADDR          (0xC500)
 
+#define SENSOR_IMX582_EMBEDDED_DATA_LINE_CONTROL  (0xBCF1)
+
 #define SENSOR_IMX582_LRC_DUMP_NAME               "/data/vendor/camera/IMX582_LRC_DUMP.bin"
 #define SENSOR_IMX582_QSC_DUMP_NAME               "/data/vendor/camera/IMX582_QSC_DUMP.bin"
 
@@ -76,37 +81,37 @@
 /*
  * [Mode Information]
  *
- * Reference File : IMX582_SEC-DPHY-26MHz_RegisterSetting_ver7.00-5.10_b2_MP0_191108.xlsx
- * Update Data    : 2019-11-12
+ * Reference File : IMX582_SEC-DPHY-26MHz_RegisterSetting_ver9.00-5.10_b3_MP0_200508.xlsx
+ * Update Data    : 2020-05-12
  * Author         : takkyoum.kim
  *
  * - Global Setting -
  *
  * - 2x2 BIN For Still Preview / Capture -
- *    [  0 ] REG_H   : 2x2 Binning Full 4000x3000 30fps    : Single Still Preview/Capture (4:3)    ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  1 ] REG_I   : 2x2 Binning Crop 4000X2256 30fps    : Single Still Preview/Capture (16:9)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  2 ] REG_J   : 2x2 Binning Crop 4000X1952 30fps    : Single Still Preview/Capture (18.5:9) ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  3 ] REG_K   : 2x2 Binning Crop 4000X1844 30fps    : Single Still Preview/Capture (19.5:9) ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  4 ] REG_L   : 2x2 Binning Crop 4000X1800 30fps    : Single Still Preview/Capture (20:9)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  5 ] REG_M   : 2x2 Binning Crop 3664X3000 30fps    : MMS (11:9)                            ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  6 ] REG_N   : 2x2 Binning Crop 3000X3000 30fps    : Single Still Preview/Capture (1:1)    ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
- *    [  7 ] REG_U   : 2x2 Binning Crop 3264X2448 30fps    : Single Still Capture (4:3)            ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  0 ] REG_H_2_t   : 2x2 Binning Full 4000x3000 30fps    : Single Still Preview/Capture (4:3)    ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  1 ] REG_I_2_t   : 2x2 Binning Crop 4000X2256 30fps    : Single Still Preview/Capture (16:9)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  2 ] REG_J_2     : 2x2 Binning Crop 4000X1952 30fps    : Single Still Preview/Capture (18.5:9) ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  3 ] REG_K_2     : 2x2 Binning Crop 4000X1844 30fps    : Single Still Preview/Capture (19.5:9) ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  4 ] REG_L_2     : 2x2 Binning Crop 4000X1800 30fps    : Single Still Preview/Capture (20:9)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  5 ] REG_M_2     : 2x2 Binning Crop 3664X3000 30fps    : MMS (11:9)                            ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  6 ] REG_N_2     : 2x2 Binning Crop 3000X3000 30fps    : Single Still Preview/Capture (1:1)    ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [  7 ] REG_U       : 2x2 Binning Crop 3264X2448 30fps    : Single Still Capture (4:3)            ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
  *
  * - 2x2 BIN V2H2 For HighSpeed Recording/FastAE-
- *    [  8 ] REG_O   : 2x2 Binning V2H2 2000X1500 120fps   : FAST AE (4:3)                         ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
- *    [  9 ] REG_P   : 2x2 Binning V2H2 2000X1128 120fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
+ *    [  8 ] REG_O_2     : 2x2 Binning V2H2 2000X1500 120fps   : FAST AE (4:3)                         ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
+ *    [  9 ] REG_P_2     : 2x2 Binning V2H2 2000X1128 120fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
  *
  * - 2x2 BIN V2H2 For HighSpeed Recording -
- *    [ 10 ] REG_Q   : 2x2 Binning V2H2 1296X736  240fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
- *    [ 11 ] REG_R   : 2x2 Binning V2H2 2000X1128 240fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
+ *    [ 10 ] REG_Q_2     : 2x2 Binning V2H2 1296X736  240fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
+ *    [ 11 ] REG_R_2     : 2x2 Binning V2H2 2000X1128 240fps   : High Speed Recording (16:9)           ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 1848
  *
- * - 2x2 BIN FHD Recording -
- *    [ 12 ] REG_S   : 2x2 Binning V2H2 4000x2256  60fps   : FHD Recording (16:9)                  ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
-
+ * - 2x2 BIN FHD Recording
+ *    [ 12 ] REG_S       : 2x2 Binning V2H2 4000x2256  60fps   : FHD Recording (16:9)                  ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *
  * - Remosaic For Single Still Remosaic Capture -
- *    [ 13 ] REG_G   : Remosaic Full 8000x6000 15fps       : Single Still Remosaic Capture (4:3)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2184
- *    [ 14 ] REG_T   : Remosaic Crop 4000x3000 30fps       : Single Still Remosaic Capture (4:3)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2184
- *    [ 15 ] REG_A_A : Remosaic Crop 4000x2256 30fps       : Single Still Remosaic Capture (16:9)  ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
+ *    [ 13 ] REG_G       : Remosaic Full 8000x6000 15fps        : Single Still Remosaic Capture (4:3)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2184
+ *    [ 14 ] REG_T_t     : Remosaic Crop 4000x3000 30fps        : Single Still Remosaic Capture (4:3)   ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2184
+ *    [ 15 ] REG_A_A_t   : Remosaic Crop 4000x2256 30fps        : Single Still Remosaic Capture (16:9)  ,  MIPI lane: 4, MIPI data rate(Mbps/lane): 2058
  */
 
 enum sensor_imx582_mode_enum {
@@ -181,3 +186,13 @@ enum sensor_imx582_chip_id_ver_enum {
 	(m >= IMX582_MODE_REMOSAIC_START) && (m <= IMX582_MODE_REMOSAIC_END); \
 })
 
+#define IS_SEAMLESS_MODE_CHANGE(cis) ({						\
+	u32 m;													\
+	typecheck(struct fimc_is_cis *, cis);							\
+															\
+	m = cis->cis_data->sens_config_index_cur;					\
+	(m == SENSOR_IMX582_2X2BIN_FULL_4000X3000_30FPS			\
+	|| m == SENSOR_IMX582_2X2BIN_CROP_4000X2256_30FPS		\
+	|| m == SENSOR_IMX582_REMOSAIC_CROP_4000x3000_30FPS	\
+	|| m == SENSOR_IMX582_REMOSAIC_CROP_4000x2256_30FPS);	\
+})

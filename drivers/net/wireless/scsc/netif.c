@@ -133,6 +133,40 @@ static int slsi_netif_tcp_ack_suppression_stop(struct net_device *dev);
 static struct sk_buff *slsi_netif_tcp_ack_suppression_pkt(struct net_device *dev, struct sk_buff *skb);
 #endif
 
+#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+void slsi_net_randomize_nmi_ndi(struct slsi_dev *sdev)
+{
+	int               exor_base = 1, exor_byte = 5, i;
+	u8                random_mac[ETH_ALEN];
+
+	/* Randomize mac address */
+	SLSI_ETHER_COPY(random_mac, sdev->hw_addr);
+	/* If random number is same as actual bytes in hw_address
+	 * try random again. hope 2nd random will not be same as
+	 * bytes in hw_address
+	 */
+	slsi_get_random_bytes(&random_mac[3], 3);
+	if (!memcmp(&random_mac[3], &sdev->hw_addr[3], 3))
+		slsi_get_random_bytes(&random_mac[3], 3);
+	SLSI_ETHER_COPY(sdev->netdev_addresses[SLSI_NET_INDEX_NAN], random_mac);
+	/* Set the local bit */
+	sdev->netdev_addresses[SLSI_NET_INDEX_NAN][0] |= 0x02;
+	/* EXOR 4th byte with 0x80 */
+	sdev->netdev_addresses[SLSI_NET_INDEX_NAN][3] ^= 0x80;
+	for (i = SLSI_NAN_DATA_IFINDEX_START; i < CONFIG_SCSC_WLAN_MAX_INTERFACES + 1; i++) {
+		SLSI_ETHER_COPY(sdev->netdev_addresses[i], random_mac);
+		sdev->netdev_addresses[i][0] |= 0x02;
+		sdev->netdev_addresses[i][exor_byte] ^= exor_base;
+		exor_base++;
+		/* currently supports upto 15 mac address for nan
+		 * data interface
+		 */
+		if (exor_base > 0xf)
+			break;
+	}
+}
+#endif
+
 /* Net Device callback operations */
 static int slsi_net_open(struct net_device *dev)
 {
@@ -140,10 +174,6 @@ static int slsi_net_open(struct net_device *dev)
 	struct slsi_dev   *sdev = ndev_vif->sdev;
 	int               err;
 	unsigned char	  dev_addr_zero_check[ETH_ALEN];
-#if CONFIG_SCSC_WLAN_MAX_INTERFACES >= 4
-	int               exor_base = 1, exor_byte = 5, i;
-	u8                random_mac[ETH_ALEN];
-#endif
 
 	if (WARN_ON(ndev_vif->is_available))
 		return -EINVAL;
@@ -178,39 +208,15 @@ static int slsi_net_open(struct net_device *dev)
 		sdev->netdev_addresses[SLSI_NET_INDEX_P2PX_SWLAN][0] |= 0x02;
 		/* EXOR 5th byte with 0x80 */
 		sdev->netdev_addresses[SLSI_NET_INDEX_P2PX_SWLAN][4] ^= 0x80;
-#if CONFIG_SCSC_WLAN_MAX_INTERFACES >= 4
-		/* randomize mac address*/
-		SLSI_ETHER_COPY(random_mac, sdev->hw_addr);
-		/* If random number is same as actual bytes in hw_address
-		 * try random again. hope 2nd random will not be same as
-		 * bytes in hw_address
-		 */
-		slsi_get_random_bytes(&random_mac[3], 3);
-		if (!memcmp(&random_mac[3], &sdev->hw_addr[3], 3))
-			slsi_get_random_bytes(&random_mac[3], 3);
-		SLSI_ETHER_COPY(sdev->netdev_addresses[SLSI_NET_INDEX_NAN], random_mac);
-		/* Set the local bit */
-		sdev->netdev_addresses[SLSI_NET_INDEX_NAN][0] |= 0x02;
-		/* EXOR 4th byte with 0x80 */
-		sdev->netdev_addresses[SLSI_NET_INDEX_NAN][3] ^= 0x80;
-		for (i = SLSI_NAN_DATA_IFINDEX_START; i < CONFIG_SCSC_WLAN_MAX_INTERFACES + 1; i++) {
-			SLSI_ETHER_COPY(sdev->netdev_addresses[i], random_mac);
-			sdev->netdev_addresses[i][0] |= 0x02;
-			sdev->netdev_addresses[i][exor_byte] ^= exor_base;
-			exor_base++;
-			/* currently supports upto 15 mac address for nan
-			 * data interface
-			 */
-			if (exor_base > 0xf)
-				break;
-		}
+#if CONFIG_SCSC_WLAN_MAX_INTERFACES >= 4 && defined(CONFIG_SCSC_WIFI_NAN_ENABLE)
+		slsi_net_randomize_nmi_ndi(sdev);
 #endif
 		sdev->initial_scan = true;
 	}
 
 	memset(dev_addr_zero_check, 0, ETH_ALEN);
 	if (!memcmp(dev->dev_addr, dev_addr_zero_check, ETH_ALEN)) {
-#ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
+#if defined(CONFIG_SCSC_WLAN_WIFI_SHARING) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
 		if (SLSI_IS_VIF_INDEX_MHS(sdev, ndev_vif))
 			SLSI_ETHER_COPY(dev->dev_addr, sdev->netdev_addresses[SLSI_NET_INDEX_P2P]);
 		else
@@ -925,17 +931,12 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	SLSI_NET_DBG3(dev, SLSI_TX, "Proto 0x%.4X\n", be16_to_cpu(eth_hdr(skb)->h_proto));
 
-#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
-	if (ndev_vif->ifnum < SLSI_NAN_DATA_IFINDEX_START) {
-#endif
-		if (!ndev_vif->is_available) {
-			SLSI_NET_WARN(dev, "vif NOT available\n");
-			r = -EFAULT;
-			goto evaluate;
-		}
-#ifdef CONFIG_SCSC_WIFI_NAN_ENABLE
+	if (!ndev_vif->is_available) {
+		SLSI_NET_WARN(dev, "vif NOT available\n");
+		r = -EFAULT;
+		goto evaluate;
 	}
-#endif
+
 	if (skb->queue_mapping == SLSI_NETIF_Q_DISCARD) {
 		SLSI_NET_WARN(dev, "Discard Queue :: Packet Dropped\n");
 		r = -EIO;
@@ -955,7 +956,7 @@ static netdev_tx_t slsi_net_hw_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (!skb) {
 		slsi_wakeunlock(&sdev->wlan_wl);
 		if (original_skb)
-			slsi_kfree_skb(original_skb);
+			consume_skb(original_skb);
 		return NETDEV_TX_OK;
 	}
 #endif
@@ -970,7 +971,7 @@ evaluate:
 		 * upper network layers....if a copy was passed down.
 		 */
 		if (original_skb)
-			slsi_kfree_skb(original_skb);
+			consume_skb(original_skb);
 		/* skb freed by lower layers on success...enjoy */
 
 		ndev_vif->tx_packets[traffic_q]++;
@@ -1004,7 +1005,7 @@ evaluate:
 			ndev_vif->stats.tx_fifo_errors++;
 			/* Free the local copy if any ... */
 			if (original_skb)
-				slsi_kfree_skb(skb);
+				consume_skb(skb);
 			r = NETDEV_TX_BUSY;
 		} else {
 #ifdef CONFIG_SCSC_WLAN_DEBUG
@@ -1014,9 +1015,12 @@ evaluate:
 			WARN_ON(known_users && atomic_read(&skb->users) != known_users);
 #endif
 #endif
-			if (original_skb)
+			if (original_skb) {
+				consume_skb(skb);
 				slsi_kfree_skb(original_skb);
-			slsi_kfree_skb(skb);
+			} else {
+				slsi_kfree_skb(skb);
+			}
 			ndev_vif->stats.tx_dropped++;
 			/* We return the ORIGINAL Error 'r' anyway
 			 * BUT Kernel treats them as TX complete anyway
@@ -1347,7 +1351,7 @@ int slsi_netif_add_locked(struct slsi_dev *sdev, const char *name, int ifnum)
 	/* We are not ready to send data yet. */
 	netif_carrier_off(dev);
 
-#ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
+#if defined(CONFIG_SCSC_WLAN_WIFI_SHARING) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
 	if (strcmp(name, CONFIG_SCSC_AP_INTERFACE_NAME) == 0)
 		SLSI_ETHER_COPY(dev->dev_addr, sdev->netdev_addresses[SLSI_NET_INDEX_P2P]);
 	else
@@ -1420,8 +1424,8 @@ int slsi_netif_init(struct slsi_dev *sdev)
 		SLSI_MUTEX_UNLOCK(sdev->netdev_add_remove_mutex);
 		return -EINVAL;
 	}
-#ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
-#if defined(CONFIG_SCSC_WLAN_MHS_STATIC_INTERFACE) || (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 90000)
+#if defined(CONFIG_SCSC_WLAN_WIFI_SHARING) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
+#if defined(CONFIG_SCSC_WLAN_MHS_STATIC_INTERFACE) || (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 90000) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
 	if (slsi_netif_add_locked(sdev, CONFIG_SCSC_AP_INTERFACE_NAME, SLSI_NET_INDEX_P2PX_SWLAN) != 0) {
 		rtnl_lock();
 		slsi_netif_remove_locked(sdev, sdev->netdev[SLSI_NET_INDEX_WLAN]);
@@ -1437,8 +1441,8 @@ int slsi_netif_init(struct slsi_dev *sdev)
 		rtnl_lock();
 		slsi_netif_remove_locked(sdev, sdev->netdev[SLSI_NET_INDEX_WLAN]);
 		slsi_netif_remove_locked(sdev, sdev->netdev[SLSI_NET_INDEX_P2P]);
-#ifdef CONFIG_SCSC_WLAN_WIFI_SHARING
-#if defined(CONFIG_SCSC_WLAN_MHS_STATIC_INTERFACE) || (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 90000)
+#if defined(CONFIG_SCSC_WLAN_WIFI_SHARING) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
+#if defined(CONFIG_SCSC_WLAN_MHS_STATIC_INTERFACE) || (defined(SCSC_SEP_VERSION) && SCSC_SEP_VERSION >= 90000) || defined(CONFIG_SCSC_WLAN_DUAL_STATION)
 		slsi_netif_remove_locked(sdev, sdev->netdev[SLSI_NET_INDEX_P2PX_SWLAN]);
 #endif
 #endif
@@ -2142,7 +2146,7 @@ _forward_now:
 		if (tcp_ack_suppression_monitor && tcp_ack->age)
 			mod_timer(&tcp_ack->timer, jiffies + msecs_to_jiffies(tcp_ack->age));
 		ndev_vif->tcp_ack_stats.tack_suppressed++;
-		slsi_kfree_skb(cskb);
+		consume_skb(cskb);
 	}
 	skb_queue_tail(&tcp_ack->list, skb);
 	tcp_ack->ack_seq = be32_to_cpu(tcp_hdr(skb)->ack_seq);

@@ -12,7 +12,7 @@
 #define SSP_MSG_HEADER_SIZE 13
 
 void handle_packet(struct ssp_data *data, char *packet, int packet_size)
-{	
+{
 	u16 msg_length = 0;
 	u8 msg_cmd = 0, msg_subcmd = 0, msg_type = 0;
 	char *buffer;
@@ -20,7 +20,7 @@ void handle_packet(struct ssp_data *data, char *packet, int packet_size)
 	if(packet_size < SSP_MSG_HEADER_SIZE) {
 		ssp_infof("nanohub packet size is small/(%s)", packet);
 		return;
-	} 
+	}
 
 	msg_cmd = packet[0];
 	msg_type = packet[1];
@@ -66,11 +66,11 @@ void handle_packet(struct ssp_data *data, char *packet, int packet_size)
 					}
 					msg->buffer = kzalloc(msg->length, GFP_KERNEL);
 					memcpy(msg->buffer, packet + SSP_MSG_HEADER_SIZE, msg->length);
-					
+
 				} else {
 					msg->res = 0;
 				}
-			} 
+			}
 
 			if (msg->done != NULL && !completion_done(msg->done)) {
 				complete(msg->done);
@@ -82,7 +82,7 @@ void handle_packet(struct ssp_data *data, char *packet, int packet_size)
 exit:
 		mutex_unlock(&data->pending_mutex);
 	} else if (msg_cmd == CMD_REPORT) {
-                
+
 	    buffer = kzalloc(msg_length, GFP_KERNEL);
 		memcpy(buffer, &packet[SSP_MSG_HEADER_SIZE], msg_length);
 		parse_dataframe(data, buffer, msg_length);
@@ -108,7 +108,7 @@ static int do_transfer(struct ssp_data *data, struct ssp_msg *msg, int timeout)
 		mutex_unlock(&data->comm_mutex);
 		return -EIO;
 	}
-	
+
 	msg->timestamp = get_current_timestamp();
 	memcpy(ssp_cmd_data, msg, SSP_MSG_HEADER_SIZE);
 	if (msg->length > 0) {
@@ -119,17 +119,21 @@ static int do_transfer(struct ssp_data *data, struct ssp_msg *msg, int timeout)
 		return -EINVAL;
 	}
 
-	status = sensorhub_comms_write(data, ssp_cmd_data, SSP_CMD_SIZE, timeout);
-
-	if (status < 0) {
-		ssp_errf("comm write fail!!");
-		goto exit;
-	}
-
 	if (msg->done != NULL) {
 		mutex_lock(&data->pending_mutex);
 		list_add_tail(&msg->list, &data->pending_list);
 		mutex_unlock(&data->pending_mutex);
+	}
+
+	status = sensorhub_comms_write(data, ssp_cmd_data, SSP_CMD_SIZE, timeout);
+
+	if (status < 0 && msg->done != NULL) {
+		ssp_errf("comm write fail!!");
+		mutex_lock(&data->pending_mutex);
+		list_del(&msg->list);
+		mutex_unlock(&data->pending_mutex);
+
+		goto exit;
 	}
 
 exit:
@@ -256,7 +260,7 @@ int ssp_send_command(struct ssp_data *data, u8 cmd, u8 type, u8 subcmd,
 	//mutex_unlock(&data->cmd_mutex);
 
 	if(status < 0) {
-		recovery_mcu(data, RESET_KERNEL_COM_FAIL);
+		reset_mcu(data, RESET_TYPE_KERNEL_COM_FAIL);
 		ssp_errf("status=%d", status);
 	}
 	return status;
@@ -274,13 +278,12 @@ int enable_sensor(struct ssp_data *data, unsigned int type, u8* buf, int buf_len
 {
 	int ret = 0;
 
-	data->latest_timestamp[type] = get_current_timestamp();
 	ret = ssp_send_command(data, CMD_ADD, type, 0, 0, buf, buf_len,
 	                       NULL, NULL);
 
 	if (ret < 0) {
 		ssp_errf("commnd error %d", ret);
-	} else {		
+	} else {
 		data->en_info[type].enabled = true;
 		data->en_info[type].regi_time.timestamp = get_current_timestamp();
 		get_tm(&(data->en_info[type].regi_time.tm));

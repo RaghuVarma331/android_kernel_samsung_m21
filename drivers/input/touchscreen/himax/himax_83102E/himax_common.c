@@ -19,25 +19,17 @@
 #include "himax_modular_table.h"
 
 #ifdef HX_SMART_WAKEUP
-#define GEST_SUP_NUM 26
+#define GEST_SUP_NUM 1
 /* Setting cust key define (DF = double finger) */
 /* {Double Tap, Up, Down, Left, Rright, C, Z, M,
  *	O, S, V, W, e, m, @, (reserve),
  *	Finger gesture, ^, >, <, f(R), f(L), Up(DF), Down(DF),
  *	Left(DF), Right(DF)}
  */
-	uint8_t gest_event[GEST_SUP_NUM] = {
-	0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-	0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-	0x81, 0x1D, 0x2D, 0x3D, 0x1F, 0x2F, 0x51, 0x52,
-	0x53, 0x54};
+	uint8_t gest_event[GEST_SUP_NUM] = {0x80};
 
 /*gest_event mapping to gest_key_def*/
-	uint16_t gest_key_def[GEST_SUP_NUM] = {
-	KEY_HOMEPAGE, 251, 252, 253, 254, 255, 256, 257,
-	258, 259, 260, 261, 262, 263, 264, 265,
-	266, 267, 268, 269, 270, 271, 272, 273,
-	274, 275};
+	uint16_t gest_key_def[GEST_SUP_NUM] = {KEY_WAKEUP};
 
 uint8_t *wake_event_buffer;
 #endif
@@ -778,8 +770,10 @@ int himax_input_register(struct himax_ts_data *ts)
 	set_bit(KEY_POWER, ts->input_dev->keybit);
 #endif
 	set_bit(BTN_TOUCH, ts->input_dev->keybit);
-	set_bit(KEY_APPSELECT, ts->input_dev->keybit);
 	set_bit(INPUT_PROP_DIRECT, ts->input_dev->propbit);
+#if defined(HX_EN_SEL_BUTTON) || defined(HX_EN_MUT_BUTTON)
+	set_bit(KEY_APPSELECT, ts->input_dev->keybit);
+#endif
 #ifdef	HX_PROTOCOL_A
 	/*ts->input_dev->mtsize = ts->nFinger_support;*/
 	input_set_abs_params(ts->input_dev, ABS_MT_TRACKING_ID, 0, 3, 0, 0);
@@ -887,10 +881,15 @@ static int himax_auto_update_check(void)
 
 	I("%s:Entering!\n", __func__);
 	if (g_core_fp.fp_fw_ver_bin() == 0) {
-		I("%s: CID major ic: %08X, CID major bin: %08X\n", __func__, ic_data->vendor_cid_maj_ver, g_i_CID_MAJ);
-		I("%s: CID mimor ic: %08X, CID minor bin: %08X\n", __func__, ic_data->vendor_cid_min_ver, g_i_CID_MIN);
+		I("%s: CID major, minor IC: %02X,%02X, bin: %02X,%02X\n", __func__,
+				ic_data->vendor_cid_maj_ver, ic_data->vendor_cid_min_ver, g_i_CID_MAJ, g_i_CID_MIN);
 		if ((ic_data->vendor_cid_maj_ver != g_i_CID_MAJ) || (ic_data->vendor_cid_min_ver < g_i_CID_MIN)) {
 			I("Need to update!\n");
+			ret = NO_ERR;
+		} else if ((ic_data->vendor_cid_maj_ver == g_i_CID_MAJ) &&
+					(ic_data->vendor_cid_min_ver == g_i_CID_MIN) &&
+					(g_core_fp.fp_flash_lastdata_check(FW_SIZE_128k, i_CTPM_FW, i_CTPM_FW_len) != 0)) {
+			I("last 4 bytes check failed!!!!!, need to update\n");
 			ret = NO_ERR;
 		} else {
 			I("No need to update!\n");
@@ -1174,10 +1173,10 @@ static void himax_wake_event_report(void)
 
 	if (KEY_EVENT) {
 		I(" %s SMART WAKEUP KEY event %d press\n", __func__, KEY_EVENT);
-		input_report_key(private_ts->input_dev, KEY_HOMEPAGE, 1);
+		input_report_key(private_ts->input_dev, KEY_WAKEUP, 1);
 		input_sync(private_ts->input_dev);
 		I(" %s SMART WAKEUP KEY event %d release\n", __func__, KEY_EVENT);
-		input_report_key(private_ts->input_dev, KEY_HOMEPAGE, 0);
+		input_report_key(private_ts->input_dev, KEY_WAKEUP, 0);
 		input_sync(private_ts->input_dev);
 		FAKE_POWER_KEY_SEND = true;
 #ifdef HX_GESTURE_TRACK
@@ -2800,10 +2799,10 @@ static int hx_chk_flash_sts(void)
 
 #ifdef HX_AUTO_UPDATE_FW
 	g_auto_update_flag = (!g_core_fp.fp_calculateChecksum(false, size));
-	g_auto_update_flag |= g_core_fp.fp_flash_lastdata_check(size);
+	g_auto_update_flag |= g_core_fp.fp_flash_lastdata_check(size, NULL, 0);
 #else
 	g_core_fp.fp_calculateChecksum(false, size);
-	g_core_fp.fp_flash_lastdata_check(size);
+	g_core_fp.fp_flash_lastdata_check(size, NULL, 0);
 #endif
 
 	return rslt;
@@ -2938,6 +2937,8 @@ int himax_chip_common_init(void)
 			I("%s cannot set pinctrl state\n", __func__);
 		}
 	}
+
+	atomic_set(&ts->suspend_mode, 0);
 
 	g_hx_chip_inited = 0;
 	idx = himax_get_ksym_idx();
@@ -3319,7 +3320,7 @@ int himax_chip_common_suspend(struct himax_ts_data *ts)
 			g_core_fp.fp_0f_overlay(2, 0);
 #endif
 
-		atomic_set(&ts->suspend_mode, 1);
+		atomic_set(&ts->suspend_mode, 2);
 		ts->pre_finger_mask = 0;
 		FAKE_POWER_KEY_SEND = false;
 
@@ -3394,8 +3395,6 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 		g_zero_event_count = 0;
 #endif
 
-	atomic_set(&ts->suspend_mode, 0);
-
 	if (ts->pdata)
 		if (ts->pdata->powerOff3V3 && ts->pdata->power)
 			ts->pdata->power(1);
@@ -3410,6 +3409,8 @@ int himax_chip_common_resume(struct himax_ts_data *ts)
 			I("%s: cannot set pinctrl state\n", __func__);
 		}
 	}
+
+	atomic_set(&ts->suspend_mode, 0);
 
 #if defined(HX_RST_PIN_FUNC) && defined(HX_RESUME_HW_RESET)
 	if (g_core_fp.fp_ic_reset != NULL)

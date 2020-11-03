@@ -2396,11 +2396,11 @@ static noinline void tracing_mark_write(bool start, struct file *file, pgoff_t o
 		path = dentry_path(file->f_path.dentry, buf, 256);
 
 		if (!IS_ERR(path))
-			trace_printk("B|%d|%d , %s , %lu , %d\n", current->pid, sync, path, offset, size);
+			trace_printk("B|%d|%d , %s , %lu , %d\n", current->tgid, sync, path, offset, size);
 		else
-			trace_printk("B|%d|%d , %s , %lu , %d\n", current->pid, sync, "dentry_path failed", offset, size);
+			trace_printk("B|%d|%d , %s , %lu , %d\n", current->tgid, sync, "dentry_path failed", offset, size);
 	} else {
-		trace_printk("E|%d\n", current->pid);
+		trace_printk("E|%d\n", current->tgid);
 	}
 }
 
@@ -2617,7 +2617,9 @@ page_not_uptodate:
 	 */
 	ClearPageError(page);
 	fpin = maybe_unlock_mmap_for_io(vmf, fpin);
+	trace_fault_file_path_start(file, offset, 1, 1);
 	error = mapping->a_ops->readpage(file, page);
+	trace_fault_file_path_end(file, offset, 1, 1);
 	if (!error) {
 		wait_on_page_locked(page);
 		if (!PageUptodate(page))

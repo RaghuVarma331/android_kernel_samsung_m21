@@ -901,7 +901,7 @@ struct himax_core_fp {
 	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_124k)(unsigned char *fw, int len, bool change_iref);
 	int (*fp_fts_ctpm_fw_upgrade_with_sys_fs_128k)(unsigned char *fw, int len, bool change_iref);
 	void (*fp_flash_dump_func)(uint8_t local_flash_command, int Flash_Size, uint8_t *flash_buffer);
-	bool (*fp_flash_lastdata_check)(uint32_t size);
+	bool (*fp_flash_lastdata_check)(uint32_t size, unsigned char *fw, int len);
 	bool (*fp_ahb_squit)(void);
 	void (*fp_flash_read)(uint8_t *r_data, int start_addr, int length);
 	bool (*fp_sfr_rw)(uint8_t *addr, int length, uint8_t *data, uint8_t rw_ctrl);

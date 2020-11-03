@@ -238,12 +238,16 @@ enum flite_hw_control_id {
  */
 void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance);
 int csi_hw_get_ppc_mode(u32 __iomem *base_reg);
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc);
 int csi_hw_reset(u32 __iomem *base_reg);
 int csi_hw_s_settle(u32 __iomem *base_reg, u32 settle);
 int csi_hw_s_phy_sctrl_n(u32 __iomem *base_reg, u32 ctrl, u32 n);
 int csi_hw_s_phy_bctrl_n(u32 __iomem *base_reg, u32 ctrl, u32 n);
 int csi_hw_s_lane(u32 __iomem *base_reg, struct fimc_is_image *img, u32 lanes, u32 mipi_speed);
 int csi_hw_s_control(u32 __iomem *base_reg, u32 id, u32 value);
+#ifdef SUPPORT_REMOSAIC_CROP_ZOOM
+int csi_hw_s_config_crop_zoom(u32 __iomem *base_reg, u32 channel, struct fimc_is_vci_config *config, u32 width, u32 height);
+#endif
 int csi_hw_s_config(u32 __iomem *base_reg, u32 channel, struct fimc_is_vci_config *config, u32 width, u32 height);
 int csi_hw_s_irq_msk(u32 __iomem *base_reg, bool on);
 int csi_hw_g_irq_src(u32 __iomem *base_reg, struct csis_irq_src *src, bool clear);

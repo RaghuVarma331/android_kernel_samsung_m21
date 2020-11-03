@@ -51,7 +51,6 @@
 #define WIFI_EVENT_FW_NAN_ROLE_TYPE        66
 #define WIFI_EVENT_FW_FRAME_TRANSMIT_FAILURE   67
 
-
 #define SLSI_WIFI_TAG_VD_CHANNEL_UTILISATION   0xf01a
 #define SLSI_WIFI_TAG_VD_ROAMING_REASON           0xf019
 #define SLSI_WIFI_TAG_VD_BTM_REQUEST_MODE      0xf01b
@@ -73,8 +72,6 @@
 #define SLSI_WIFI_TAG_VD_NAN_HOP_COUNT              0xf029
 #define SLSI_WIFI_TAG_VD_MESSAGE_TYPE                 0xf02b
 
-
-
 #define SLSI_WIFI_EAPOL_KEY_TYPE_GTK                      0x0000
 #define SLSI_WIFI_EAPOL_KEY_TYPE_PTK                      0x0001
 #define SLSI_WIFI_ROAMING_SEARCH_REASON_RESERVED   0
@@ -87,7 +84,6 @@
 
 #define MAX_SSID_LEN 100
 #define MAX_CHANNEL_COUNT 40
-
 
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -145,6 +141,12 @@ char *slsi_print_event_name(int event_id)
 		return "SLSI_NL80211_VENDOR_ACS_EVENT";
 	case SLSI_NL80211_NAN_TRANSMIT_FOLLOWUP_STATUS:
 		return "SLSI_NL80211_NAN_TRANSMIT_FOLLOWUP_STATUS";
+	case SLSI_NAN_EVENT_NDP_REQ:
+		return "SLSI_NAN_EVENT_NDP_REQ";
+	case SLSI_NAN_EVENT_NDP_CFM:
+		return "SLSI_NAN_EVENT_NDP_CFM";
+	case SLSI_NAN_EVENT_NDP_END:
+		return "SLSI_NAN_EVENT_NDP_END";
 	default:
 		return "UNKNOWN_EVENT";
 	}
@@ -225,7 +227,7 @@ char *slsi_print_channel_list(int channel_list[], int channel_count)
 {
 	int i, slen = 0;
 	char *string = kmalloc((channel_count * 4) + 1, GFP_KERNEL);  /* channel max characters length(3)+space(1) = 4 */
-	int max_size = (MAX_CHANNEL_COUNT * 4) + 1;
+	int max_size = (channel_count * 4) + 1;
 	if (!string) {
 		SLSI_ERR_NODEV("Failed to allocate channel string\n");
 		return "-1";
@@ -1422,6 +1424,10 @@ static int slsi_set_bssid_blacklist(struct wiphy *wiphy, struct wireless_dev *wd
 				goto exit;
 			}
 
+			if (nla_len(attr) < ETH_ALEN) {
+				ret = -EINVAL;
+				goto exit;
+			}
 			bssid = (u8 *)nla_data(attr);
 
 			SLSI_ETHER_COPY(acl_data->mac_addrs[i].addr, bssid);
@@ -1509,6 +1515,10 @@ static int slsi_start_keepalive_offload(struct wiphy *wiphy, struct wireless_dev
 			break;
 
 		case MKEEP_ALIVE_ATTRIBUTE_IP_PKT:
+			if (nla_len(attr) < ip_pkt_len) {
+				 r = -EINVAL;
+				 goto exit;
+			}
 			ip_pkt = (u8 *)nla_data(attr);
 			break;
 
@@ -1520,10 +1530,18 @@ static int slsi_start_keepalive_offload(struct wiphy *wiphy, struct wireless_dev
 			break;
 
 		case MKEEP_ALIVE_ATTRIBUTE_DST_MAC_ADDR:
+			if (nla_len(attr) < ETH_ALEN) {
+				r = -EINVAL;
+				goto exit;
+			}
 			dst_mac_addr = (u8 *)nla_data(attr);
 			break;
 
 		case MKEEP_ALIVE_ATTRIBUTE_SRC_MAC_ADDR:
+			if (nla_len(attr) < ETH_ALEN) {
+				r = -EINVAL;
+				goto exit;
+			}
 			src_mac_addr = (u8 *)nla_data(attr);
 			break;
 
@@ -1755,25 +1773,46 @@ static int slsi_set_epno_ssid(struct wiphy *wiphy,
 		type = nla_type(iter);
 		switch (type) {
 		case SLSI_ATTRIBUTE_EPNO_MINIMUM_5G_RSSI:
-			slsi_util_nla_get_u16(iter, &epno_params->min_5g_rssi);
+			if (slsi_util_nla_get_u16(iter, &epno_params->min_5g_rssi)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_MINIMUM_2G_RSSI:
-			slsi_util_nla_get_u16(iter, &epno_params->min_2g_rssi);
+			if (slsi_util_nla_get_u16(iter, &epno_params->min_2g_rssi)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_INITIAL_SCORE_MAX:
-			slsi_util_nla_get_u16(iter, &epno_params->initial_score_max);
+			if (slsi_util_nla_get_u16(iter, &epno_params->initial_score_max)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_CUR_CONN_BONUS:
-			slsi_util_nla_get_u8(iter, &epno_params->current_connection_bonus);
+			if (slsi_util_nla_get_u8(iter, &epno_params->current_connection_bonus)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_SAME_NETWORK_BONUS:
-			slsi_util_nla_get_u8(iter, &epno_params->same_network_bonus);
+			if (slsi_util_nla_get_u8(iter, &epno_params->same_network_bonus)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_SECURE_BONUS:
-			slsi_util_nla_get_u8(iter, &epno_params->secure_bonus);
+			if (slsi_util_nla_get_u8(iter, &epno_params->secure_bonus)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_5G_BONUS:
-			slsi_util_nla_get_u8(iter, &epno_params->band_5g_bonus);
+			if (slsi_util_nla_get_u8(iter, &epno_params->band_5g_bonus)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_SSID_LIST:
 			nla_for_each_nested(outer, iter, tmp) {
@@ -1786,7 +1825,10 @@ static int slsi_set_epno_ssid(struct wiphy *wiphy,
 			}
 			break;
 		case SLSI_ATTRIBUTE_EPNO_SSID_NUM:
-			slsi_util_nla_get_u8(iter, &val);
+			if (slsi_util_nla_get_u8(iter, &val)) {
+				r = -EINVAL;
+				goto exit;
+			}
 			num = (int)val;
 			if (num > SLSI_GSCAN_MAX_EPNO_SSIDS) {
 				SLSI_ERR(sdev, "Cannot support %d SSIDs. max %d\n", num, SLSI_GSCAN_MAX_EPNO_SSIDS);
@@ -3644,13 +3686,13 @@ char *slsi_frame_transmit_failure_message_type(int message_type)
 char *slsi_get_scan_type(int scan_type)
 {
 	switch (scan_type) {
-	case 11:
+	case FAPI_SCANTYPE_SOFT_CACHED_ROAMING_SCAN:
 		return "Soft Cached scan";
-	case 12:
+	case FAPI_SCANTYPE_SOFT_FULL_ROAMING_SCAN:
 		return "Soft Full scan";
-	case 13:
+	case FAPI_SCANTYPE_HARD_CACHED_ROAMING_SCAN:
 		return "Hard Cached scan";
-	case 14:
+	case FAPI_SCANTYPE_HARD_FULL_ROAMING_SCAN:
 		return "Hard Full scan";
 	default:
 		return "Undefined";
@@ -3848,6 +3890,12 @@ void slsi_rx_event_log_indication(struct slsi_dev *sdev, struct net_device *dev,
 				le16_ptr = (__le16 *)&tlv_data[iter];
 				channel_val = le16_to_cpu(*le16_ptr);
 				channel_list[channel_count] = ieee80211_frequency_to_channel(channel_val / 2);
+				if (channel_list[channel_count] < 1 || channel_list[channel_count] > 196) {
+					SLSI_ERR(sdev, "ERR: Invalid channel received %d\n", channel_list[channel_count]);
+					/* Invalid channel is received. Prints out TLV data for SLSI_WIFI_TAG_IE */
+					SCSC_BIN_TAG_INFO(BINARY, &tlv_data[i], tlv_data[i + 1] + 2);
+					break;
+				}
 				iter += 3;
 				channel_count += 1;
 				if (channel_count == MAX_CHANNEL_COUNT) {
@@ -4642,8 +4690,7 @@ static int slsi_get_tx_pkt_fates(struct wiphy *wiphy, struct wireless_dev *wdev,
 				ret = -EINVAL;
 				goto exit;
 			}
-			if (req_count > MAX_FATE_LOG_LEN)
-			{
+			if (req_count > MAX_FATE_LOG_LEN) {
 				SLSI_ERR(sdev, "Found invalid req_count %d for SLSI_ENHANCED_LOGGING_ATTRIBUTE_PKT_FATE_NUM", req_count);
 				ret = -EINVAL;
 				goto exit;
@@ -4716,8 +4763,7 @@ static int slsi_get_rx_pkt_fates(struct wiphy *wiphy, struct wireless_dev *wdev,
 				ret = -EINVAL;
 				goto exit;
 			}
-			if (req_count > MAX_FATE_LOG_LEN)
-			{
+			if (req_count > MAX_FATE_LOG_LEN) {
 				SLSI_ERR(sdev, "Found invalid req_count %d for SLSI_ENHANCED_LOGGING_ATTRIBUTE_PKT_FATE_NUM", req_count);
 				ret = -EINVAL;
 				goto exit;
@@ -4888,7 +4934,7 @@ exit:
 static int slsi_acs_validate_width_hw_mode(struct slsi_acs_request *request)
 {
 	if (request->hw_mode != SLSI_ACS_MODE_IEEE80211A && request->hw_mode != SLSI_ACS_MODE_IEEE80211B &&
-	    request->hw_mode != SLSI_ACS_MODE_IEEE80211G)
+	    request->hw_mode != SLSI_ACS_MODE_IEEE80211G && request->hw_mode != SLSI_ACS_MODE_IEEE80211ANY)
 		return -EINVAL;
 	if (request->ch_width != 20 && request->ch_width != 40 && request->ch_width != 80)
 		return -EINVAL;
@@ -5031,9 +5077,12 @@ static int slsi_acs_init(struct wiphy *wiphy,
 		}
 
 		if (request->hw_mode == SLSI_ACS_MODE_IEEE80211A)
-			request->ch_list_len = 25;
+			request->ch_list_len = MAX_5G_CHANNELS;
+		else if (request->hw_mode == SLSI_ACS_MODE_IEEE80211B || request->hw_mode == SLSI_ACS_MODE_IEEE80211G)
+			request->ch_list_len = MAX_24G_CHANNELS;
 		else
-			request->ch_list_len = 14;
+			request->ch_list_len = MAX_CHAN_VALUE_ACS;
+
 		memcpy(&request->acs_chan_info[0], &ch_info[0], sizeof(ch_info));
 		ndev_vif->scan[SLSI_SCAN_HW_ID].acs_request = request;
 		ndev_vif->scan[SLSI_SCAN_HW_ID].is_blocking_scan = false;

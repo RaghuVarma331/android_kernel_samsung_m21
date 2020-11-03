@@ -488,7 +488,8 @@ static int sensor_hi1336_power_setpin(struct device *dev,
 
 	/* READ_ROM - POWER ON */
 	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_ON,  gpio_none, HI1336_IOVDD,     PIN_REGULATOR, 1, 0);
-	
+	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_ON,  gpio_none, SENSOR_SET_DELAY,  PIN_NONE,     0, 2000);	
+
 	/* READ_ROM - POWER OFF */
 	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_OFF, gpio_none, HI1336_IOVDD,     PIN_REGULATOR, 0, 0);
 

@@ -18,8 +18,6 @@
 #include <linux/page_idle.h>
 #include <linux/shmem_fs.h>
 #include <linux/uaccess.h>
-#include <linux/mm_inline.h>
-#include <linux/ctype.h>
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
@@ -530,7 +528,6 @@ struct mem_size_stats {
 	unsigned long anonymous_thp;
 	unsigned long shmem_thp;
 	unsigned long swap;
-	unsigned long writeback;
 	unsigned long shared_hugetlb;
 	unsigned long private_hugetlb;
 	unsigned long first_vma_start;
@@ -627,10 +624,6 @@ static void smaps_pte_entry(pte_t *pte, unsigned long addr,
 			int mapcount;
 
 			mss->swap += PAGE_SIZE;
-#ifdef CONFIG_ZRAM_COMP_WRITEBACK
-			if (is_writeback_entry(swpent))
-				mss->writeback += PAGE_SIZE;
-#endif
 			mapcount = swp_swapcount(swpent);
 			if (mapcount >= 2) {
 				u64 pss_delta = (u64)PAGE_SIZE << PSS_SHIFT;
@@ -932,7 +925,6 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 			   "Shared_Hugetlb: %8lu kB\n"
 			   "Private_Hugetlb: %7lu kB\n"
 			   "Swap:           %8lu kB\n"
-			   "Writeback:      %8lu kB\n"
 			   "SwapPss:        %8lu kB\n"
 			   "Locked:         %8lu kB\n",
 			   mss->resident >> 10,
@@ -949,7 +941,6 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 			   mss->shared_hugetlb >> 10,
 			   mss->private_hugetlb >> 10,
 			   mss->swap >> 10,
-			   mss->writeback >> 10,
 			   (unsigned long)(mss->swap_pss >> (10 + PSS_SHIFT)),
 			   (unsigned long)(mss->pss_locked >> (10 + PSS_SHIFT)));
 
@@ -1745,46 +1736,11 @@ cont:
 	return 0;
 }
 
-#ifdef CONFIG_ZRAM_COMP_WRITEBACK
-static int writeback_pte_range(pmd_t *pmd, unsigned long addr,
-		unsigned long end, struct mm_walk *walk)
-{
-	struct vm_area_struct *vma = walk->private;
-	pte_t *pte, ptent;
-	spinlock_t *ptl;
-
-	split_huge_pmd(vma, addr, pmd);
-	if (pmd_trans_unstable(pmd))
-		return 0;
-
-	pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
-	for (; addr != end; pte++, addr += PAGE_SIZE) {
-		ptent = *pte;
-		if (is_swap_pte(ptent)) {
-			swp_entry_t entry = pte_to_swp_entry(ptent);
-			if (unlikely(non_swap_entry(entry)))
-				continue;
-			swap_writeback_entry(entry);
-		}
-	}
-	pte_unmap_unlock(pte - 1, ptl);
-	cond_resched();
-	return 0;
-}
-#else
-static int writeback_pte_range(pmd_t *pmd, unsigned long addr,
-		unsigned long end, struct mm_walk *walk)
-{
-	return 0;
-}
-#endif
-
 enum reclaim_type {
 	RECLAIM_FILE,
 	RECLAIM_ANON,
 	RECLAIM_ALL,
 	RECLAIM_RANGE,
-	RECLAIM_WRITEBACK,
 };
 
 static ssize_t reclaim_write(struct file *file, const char __user *buf,
@@ -1816,8 +1772,6 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 		type = RECLAIM_ALL;
 	else if (isdigit(*type_buf))
 		type = RECLAIM_RANGE;
-	else if (!strcmp(type_buf, "writeback"))
-		type = RECLAIM_WRITEBACK;
 	else
 		goto out_err;
 
@@ -1861,8 +1815,6 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 
 	reclaim_walk.mm = mm;
 	reclaim_walk.pmd_entry = reclaim_pte_range;
-	if (type == RECLAIM_WRITEBACK)
-		reclaim_walk.pmd_entry = writeback_pte_range;
 
 	down_read(&mm->mmap_sem);
 	if (type == RECLAIM_RANGE) {
@@ -1890,8 +1842,6 @@ static ssize_t reclaim_write(struct file *file, const char __user *buf,
 			if (type == RECLAIM_FILE && !vma->vm_file)
 				continue;
 
-			if (type == RECLAIM_WRITEBACK && vma->vm_file)
-				continue;
 			reclaim_walk.private = vma;
 			walk_page_range(vma->vm_start, vma->vm_end,
 				&reclaim_walk);

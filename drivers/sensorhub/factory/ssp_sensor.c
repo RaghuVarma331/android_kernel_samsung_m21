@@ -22,18 +22,20 @@
 /* factory Sysfs                                                         */
 /*************************************************************************/
 
-#define MODEL_NAME      "CHUB_EXYNOS9610"
+#define MODEL_NAME      "CHUB_EXYNOS"
 
 #if defined(CONFIG_SENSORS_SSP_A51)
-#define SSP_FIRMWARE_REVISION       	20011400
+#define SSP_FIRMWARE_REVISION       	20042300
 #elif defined(CONFIG_SENSORS_SSP_XCOVERPRO)
-#define SSP_FIRMWARE_REVISION       	20011400
+#define SSP_FIRMWARE_REVISION       	20030600
 #elif defined(CONFIG_SENSORS_SSP_M31)
-#define SSP_FIRMWARE_REVISION       	20011400
+#define SSP_FIRMWARE_REVISION       	20030600
 #elif defined(CONFIG_SENSORS_SSP_M21)
-#define SSP_FIRMWARE_REVISION       	20013100
+#define SSP_FIRMWARE_REVISION       	20031200
+#elif defined(CONFIG_SENSORS_SSP_M31S)
+#define SSP_FIRMWARE_REVISION       	20070700
 #else //CONFIG_SENSORS_SSP_GTA4XL
-#define SSP_FIRMWARE_REVISION	        20011400
+#define SSP_FIRMWARE_REVISION	        20052900
 #endif
 
 #define FACTORY_DATA_MAX        100
@@ -80,7 +82,7 @@ ssize_t mcu_factorytest_store(struct device *dev,
 
 	} else {
 		pr_err("[SSP]: %s - invalid value %d\n", __func__, *buf);
-		
+
 		return -EINVAL;
 	}
 
