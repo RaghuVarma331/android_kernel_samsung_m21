@@ -537,6 +537,8 @@ TAS2562_INTERRUPTCONFIGURATION_PININTCONFIG10_ASSERT2MSONLATCHEDINTERRUPTS \
 #define TAS2562_CLASSDCONFIGURATION3	TAS2562_REG(0x0, 0xfd, 0x33)
 #define TAS2562_CLASSDCONFIGURATION4	TAS2562_REG(0x0, 0xfd, 0x3f)
 #define TAS2562_EFFICIENCYCONFIGURATION	TAS2562_REG(0x0, 0xfd, 0x5f)
+#define TAS2562_OSC_BOOST_CLK_MASK	(0x01 << 0x2)
+#define TAS2562_OSC_BOOST_CLK		(0x01 << 0x2)
 
 #define TAS2562_CLASSHHEADROOM TAS2562_REG(0x64, 0x7, 0x48)
 #define TAS2562_CLASSHHYSTERESIS TAS2562_REG(0x64, 0x7, 0x4c)
@@ -633,6 +635,8 @@ int mn_channels;
 int spk_l_control;
 int spk_r_control;
 int icn_sw;
+/* Added for Boost Clock Source Change - Mute Issue */
+int mn_bst_clk_src;
 int (*read)(struct tas2562_priv *p_tas2562, enum channel chn,
 	unsigned int reg, unsigned int *pValue);
 int (*write)(struct tas2562_priv *p_tas2562, enum channel chn,

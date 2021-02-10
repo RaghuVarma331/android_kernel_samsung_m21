@@ -1044,6 +1044,18 @@ static int tas2562_load_init(struct tas2562_priv *p_tas2562)
 	ret = tas2562_i2c_load_data(p_tas2562, channel_both,
 			p_tas2562_classh_d_data);
 
+/* Use Oscillator for Boost Clock instead of PLL */
+	if (p_tas2562->mn_bst_clk_src) {
+		ret = p_tas2562->write(p_tas2562, channel_both,
+					TAS2562_TESTPAGECONFIGURATION, 0x0d);
+		if (ret < 0)
+			return ret;
+		p_tas2562->update_bits(p_tas2562, channel_both,
+				TAS2562_EFFICIENCYCONFIGURATION,
+				TAS2562_OSC_BOOST_CLK_MASK,
+				TAS2562_OSC_BOOST_CLK);
+	}
+
 	return ret;
 }
 

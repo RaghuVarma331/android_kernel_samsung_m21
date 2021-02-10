@@ -695,7 +695,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 			psy_do_property(battery->pdata->fgsrc_switch_name, set,
 					POWER_SUPPLY_EXT_PROP_FGSRC_SWITCHING, value);
 			for (j = 0; j < 10; j++) {
-				mdelay(175);
+				msleep(175);
 				psy_do_property(battery->pdata->fuelgauge_name, get,
 					POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
 				ocv_data[j] = value.intval;
@@ -1469,7 +1469,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 
 			volt_cal.intval = 1;
 			psy_do_property(battery->pdata->fuelgauge_name, get,
-				POWER_SUPPLY_EXT_PROP_MEASURE_SYS, volt_cal);
+				POWER_SUPPLY_EXT_PROP_VOLT_SLOPE, volt_cal);
 
 			i += scnprintf(buf + i, PAGE_SIZE - i, "0x%04x\n",
 					volt_cal.intval);

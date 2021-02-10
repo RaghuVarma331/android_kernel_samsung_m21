@@ -231,8 +231,9 @@ static void print_sensordata(struct ssp_data *data, unsigned int sensor_type)
 			         data->delay[sensor_type].max_report_latency);
 			break;
 		case SENSOR_TYPE_LIGHT_AUTOBRIGHTNESS:
-			ssp_info("%s(%u) : %u, %u (%lld) (%ums, %dms)", data->info[sensor_type].name, sensor_type,
+			ssp_info("%s(%u) : %u, %u, %u (%lld) (%ums, %dms)", data->info[sensor_type].name, sensor_type,
 			         data->buf[sensor_type].ab_lux,
+			         data->buf[sensor_type].ab_min_flag,
 			         data->buf[sensor_type].ab_brightness,
 			         data->buf[sensor_type].timestamp,
 			         data->delay[sensor_type].sampling_period,

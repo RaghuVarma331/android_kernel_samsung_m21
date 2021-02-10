@@ -51,7 +51,7 @@
 ******************************/
 
 /* sensor types defined by samsung */
-#define SS_SENSOR_TYPE_BASE                       (LEGACY_SENSOR_MAX)
+#define SS_SENSOR_TYPE_BASE                       (128)
 #define SS_SENSOR_TYPE_CALL_POSE                  (SS_SENSOR_TYPE_BASE + 2)
 #define SS_SENSOR_TYPE_PEDOMETER                  (SS_SENSOR_TYPE_BASE + 3)
 #define SS_SENSOR_TYPE_MOTION                     (SS_SENSOR_TYPE_BASE + 4)

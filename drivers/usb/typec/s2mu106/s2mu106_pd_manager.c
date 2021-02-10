@@ -187,11 +187,10 @@ int usbpd_manager_select_pps(int num, int ppsVol, int ppsCur)
 #endif
 	pd_noti.sink_status.selected_pdo_num = num;
 
-	if (ppsVol > pd_noti.sink_status.power_list[num].max_voltage ||
-			ppsVol > MAX_CHARGING_VOLT) {
+	if (ppsVol > pd_noti.sink_status.power_list[num].max_voltage) {
 		pr_info("%s: ppsVol is over(%d, max:%d)\n",
 			__func__, ppsVol, pd_noti.sink_status.power_list[num].max_voltage);
-		ppsVol = PD_MIN(pd_noti.sink_status.power_list[num].max_voltage, MAX_CHARGING_VOLT);
+		ppsVol = pd_noti.sink_status.power_list[num].max_voltage;
 	} else if (ppsVol < pd_noti.sink_status.power_list[num].min_voltage) {
 		pr_info("%s: ppsVol is under(%d, min:%d)\n",
 			__func__, ppsVol, pd_noti.sink_status.power_list[num].min_voltage);

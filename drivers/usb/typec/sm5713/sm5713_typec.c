@@ -1113,6 +1113,9 @@ static int sm5713_port_type_set(const struct typec_capability *cap,
 #endif
 		usbpd_data->typec_try_state_change = TRY_ROLE_SWAP_TYPE;
 		sm5713_rprd_mode_change(usbpd_data, TYPE_C_ATTACH_UFP);
+	} else if (port_type == TYPEC_PORT_DRP) {
+		pr_info("%s : set to DRP (No action)\n", __func__);
+		return 0;
 	} else {
 		pr_info("%s : invalid typec_role\n", __func__);
 		return -EIO;
@@ -2786,6 +2789,8 @@ static int sm5713_usbpd_notify_attach(void *data)
 		dev_info(dev, "ccstat : cc_AUDIO\n");
 		manager->acc_type = CCIC_DOCK_UNSUPPORTED_AUDIO;
 		sm5713_usbpd_check_accessory(manager);
+	} else if ((reg_data & SM5713_ATTACH_TYPE) == SM5713_ATTACH_DEBUG) {
+		dev_info(dev, "ccstat : cc_DEBUG\n");
 	} else {
 		dev_err(dev, "%s, PLUG Error\n", __func__);
 		return -1;
@@ -3067,7 +3072,8 @@ static int sm5713_usbpd_reg_init(struct sm5713_phydrv_data *_data)
 	sm5713_usbpd_write_reg(i2c, SM5713_REG_CORR_CNTL4, 0x92);
 #endif
 	/* BMC Receiver Threshold Level for Source = 0.49V, 0.77V */
-	sm5713_usbpd_write_reg(i2c, 0xEE, 0x20);
+	/* Debug Accessory Sink Recognition Enable */
+	sm5713_usbpd_write_reg(i2c, 0xEE, 0x28);
 	sm5713_usbpd_write_reg(i2c, 0x3D, 0x77);
 	/* BMC Receiver Threshold Level for Sink = 0.25V, 0.49V */
 	sm5713_usbpd_write_reg(i2c, 0x3E, 0x01);

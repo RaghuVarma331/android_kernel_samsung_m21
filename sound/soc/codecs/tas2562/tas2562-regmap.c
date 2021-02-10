@@ -974,6 +974,18 @@ static int tas2562_parse_dt(struct device *dev, struct tas2562_priv *p_tas2562)
 				p_tas2562->mn_irq_gpio2);
 		}
 	}
+
+	/* Added for Boost Clock Source Change - Mute Issue */
+	rc = of_property_read_u32(np, "ti,bst-clk-src", &p_tas2562->mn_bst_clk_src);
+	if (rc) {
+		p_tas2562->mn_bst_clk_src = 0;
+		dev_err(p_tas2562->dev, "Looking up %s property in node %s failed %d\n",
+			"ti,bst-clk-src", np->full_name, rc);
+	} else {
+		dev_dbg(p_tas2562->dev, "ti,bst-clk-src=0x%x",
+			p_tas2562->mn_bst_clk_src);
+	}
+
 #ifdef CONFIG_TAS25XX_ALGO
 	tas25xx_parse_algo_dt(np);
 #endif /*CONFIG_TAS25XX_ALGO*/

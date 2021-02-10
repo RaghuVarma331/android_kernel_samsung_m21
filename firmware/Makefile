@@ -39,6 +39,7 @@ fw-external-$(CONFIG_SENSORS_SSP_XCOVERPRO) += sensorhub/shub_exynos9611_g715.fw
 fw-external-$(CONFIG_SENSORS_SSP_GTA4XL) += sensorhub/shub_exynos9611_gta4xl.fw
 fw-external-$(CONFIG_SENSORS_SSP_M31) += sensorhub/shub_ramen_m31.fw
 fw-external-$(CONFIG_SENSORS_SSP_M21) += sensorhub/shub_ramen_m21.fw
+fw-external-$(CONFIG_SENSORS_SSP_M31S) += sensorhub/shub_ramen_m31s.fw
 
 fw-shipped-$(CONFIG_FIVE_TEE_DRIVER) += five/ffffffff000000000000000000000072.tlbin
 
@@ -107,6 +108,3 @@ targets := $(patsubst $(obj)/%,%, \
 # Without this, built-in.o won't be created when it's empty, and the
 # final vmlinux link will fail.
 obj- := dummy
-
-# SPU signature verify
-obj-y += spu_verify/

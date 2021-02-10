@@ -973,7 +973,10 @@ static int dsim_disable(struct dsim_device *dsim)
 	}
 
 	dsim_info("dsim-%d %s +\n", dsim->id, __func__);
-	call_panel_ops(dsim, suspend, dsim);
+
+	if (dsim->lcd_info.mode != DECON_VIDEO_MODE)
+		call_panel_ops(dsim, suspend, dsim);
+
 	ret = _dsim_disable(dsim, next_state);
 	if (ret < 0) {
 		dsim_err("dsim-%d failed to set %s (ret %d)\n",

@@ -350,6 +350,8 @@ static int send_bcmd(struct io_device *iod, unsigned long arg)
 				bcmd_args.param1, bcmd_args.param2);
 	if (err == -EIO) { /* BCMD timeout */
 		gif_err("BCMD timeout cmd_id : %d\n", bcmd_args.cmd_id);
+	} else if (err == -EINVAL) {
+		gif_err("pmucal failed\n");
 	} else {
 		bcmd_args.ret_val = err;
 		err = copy_to_user((void __user *)arg,
@@ -578,6 +580,16 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case GNSS_IOCTL_SET_SENSOR_POWER:
 		gif_err("%s: GNSS_IOCTL_SENSOR_POWER\n", iod->name);
 		return set_sensor_power(gc, arg);
+
+	case GNSS_IOCTL_PURE_RELEASE:
+		gif_err("%s: GNSS_IOCTL_PURE_RELEASE\n", iod->name);
+		
+		if (!gc->ops.gnss_pure_release) {	
+			gif_err("%s: !gc->ops.gnss_pure_release\n", iod->name);	
+			return -EINVAL;	
+		}	
+		gc->ops.gnss_pure_release(gc);	
+		return 0;	
 
 	default:
 

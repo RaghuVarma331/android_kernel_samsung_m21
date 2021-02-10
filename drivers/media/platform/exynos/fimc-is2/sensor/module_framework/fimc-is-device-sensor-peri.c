@@ -492,11 +492,30 @@ void fimc_is_sensor_mode_change_work_fn(struct kthread_work *work)
 {
 	struct fimc_is_device_sensor_peri *sensor_peri;
 	struct fimc_is_cis *cis;
+#ifdef SUPPORT_COMPANION_CHIP
+	struct fimc_is_companion *companion = NULL;
+#endif
 
 	TIME_LAUNCH_STR(LAUNCH_SENSOR_INIT);
 	sensor_peri = container_of(work, struct fimc_is_device_sensor_peri, mode_change_work);
 
 	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
+
+#ifdef SUPPORT_COMPANION_CHIP
+	if(sensor_peri->subdev_companion) {
+		companion = (struct fimc_is_companion *)v4l2_get_subdevdata(sensor_peri->subdev_companion);
+	}
+	/* companion global setting is only set to first mode change time */
+	if (sensor_peri->mode_change_first == true) {
+		if (companion && companion->companion_ops) {
+			CALL_COMPANIONOPS(companion, companion_set_global_setting, companion->subdev);
+		}
+	}
+
+	if (companion && companion->companion_ops) {
+		CALL_COMPANIONOPS(companion, companion_mode_change, companion->subdev, cis->cis_data->sens_config_index_cur);
+	}
+#endif
 
 	/* cis global setting is only set to first mode change time */
 	if (sensor_peri->mode_change_first == true) {
@@ -1821,6 +1840,7 @@ void fimc_is_sensor_peri_probe(struct fimc_is_device_sensor_peri *sensor_peri)
 	clear_bit(FIMC_IS_SENSOR_FLASH_AVAILABLE, &sensor_peri->peri_state);
 	clear_bit(FIMC_IS_SENSOR_PREPROCESSOR_AVAILABLE, &sensor_peri->peri_state);
 	clear_bit(FIMC_IS_SENSOR_OIS_AVAILABLE, &sensor_peri->peri_state);
+	clear_bit(FIMC_IS_SENSOR_COMPANION_AVAILABLE, &sensor_peri->peri_state);
 	clear_bit(FIMC_IS_SENSOR_APERTURE_AVAILABLE, &sensor_peri->peri_state);
 	clear_bit(FIMC_IS_SENSOR_PDP_AVAILABLE, &sensor_peri->peri_state);
 

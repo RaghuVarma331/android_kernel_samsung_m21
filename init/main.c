@@ -574,11 +574,15 @@ static void __init rkp_init(void)
 	rkp_init_data.vmalloc_end = (u64)high_memory;
 	rkp_init_data.init_mm_pgd = (u64)__pa(swapper_pg_dir);
 	rkp_init_data.id_map_pgd = (u64)__pa(idmap_pg_dir);
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	rkp_init_data.tramp_pgd = (u64)__pa(tramp_pg_dir);
+#endif
 #ifdef CONFIG_UH_RKP_FIMC_CHECK
 	rkp_init_data.no_fimc_verify = 1;
 #endif
+#ifdef CONFIG_UNMAP_KERNEL_AT_EL0
 	rkp_init_data.tramp_valias = (u64)TRAMP_VALIAS;
+#endif
 	rkp_init_data.zero_pg_addr = (u64)__pa(empty_zero_page);
 	rkp_s_bitmap_ro = (sparse_bitmap_for_kernel_t *)
 		uh_call(UH_APP_RKP, RKP_GET_RO_BITMAP, 0, 0, 0, 0);
@@ -640,8 +644,11 @@ void kdp_init(void)
 	cred.bp_cred_secptr 	= rkp_get_offset_bp_cred();
 
 	cred.verifiedbootstate = (u64)verifiedbootstate;
+	cred.selinux.empty 	= 0;
 #ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 	cred.selinux.ss_initialized_va	= (u64)&ss_initialized;
+#else
+	cred.selinux.ss_initialized_va	= 0;
 #endif
 	uh_call(UH_APP_RKP, RKP_KDP_X40, (u64)&cred, 0, 0, 0);
 }
