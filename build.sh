@@ -1,7 +1,8 @@
 #!/bin/bash
 
 
-export ANDROID_MAJOR_VERSION=q
+export PLATFORM_VERSION=11
+export ANDROID_MAJOR_VERSION=r
 export ARCH=arm64
 make exynos9610-m21dd_defconfig
 make -j32
